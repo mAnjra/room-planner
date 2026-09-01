@@ -1,0 +1,12 @@
+# The CSV inspector is a separate project that happens to share this folder.
+csv-inspector.html
+csv-inspector.backup.html
+make_fixture.py
+test-core.js
+
+# Its test fixtures are generated, and one of them is 2MB.
+fixture-*.csv
+
+# Local tooling and OS clutter.
+.claude/
+.DS_Store
