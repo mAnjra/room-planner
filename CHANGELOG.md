@@ -3,6 +3,53 @@
 Notable changes to this project. Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and [semantic versioning](https://semver.org/) — pre-1.0, so anything may still move.
 
+## [0.0.5] — 2026-09-01
+
+Bug fixes, all of them found by using it. The important one is that the app
+was quietly damaging its own saved files.
+
+### Fixed
+
+- **Saved files could be corrupted on save, and then would not open.** The item
+  palette changed in 0.0.4, so items carrying an older colour no longer matched
+  anything in the colour menu and it went blank. Editing any field then read the
+  blank menu as `NaN`, which JSON writes as `null`, and the next attempt to open
+  the file failed with "Cannot read properties of null". A colour that is not in
+  the palette is now shown as "As saved", and every colour read is guarded, so a
+  blank menu can never become a colour.
+- **Clicks and scrolling stopped working over parts of the drawing.** The title
+  block and the item labels sat on top of the canvas and took pointer events for
+  themselves, so anything underneath them could not be clicked, dragged or
+  zoomed. Because undo moves the labels, it looked like undo was the cause.
+  Everything floating over the drawing now lets input through, zoom listens on
+  the whole viewport, and labels are hit-tested last so they never hide what is
+  beneath them.
+- **A new window or door was placed on top of the existing one.** Openings were
+  always added to the first wall, dead centre, which put a new window inside the
+  door — invisible and impossible to select. New openings and fixtures now find a
+  free span of wall, and the panel that edits them opens itself.
+- **Save a copy did nothing** if the browser had been told to block dialogs for
+  the page, which browsers offer after a couple of them. It uses an inline field
+  now, and deleting a project asks in place. Nothing depends on `prompt` or
+  `confirm` any more.
+- **Opening a bad file loaded it anyway and then complained.** Opening a file is
+  now all-or-nothing: it is worked out in full first and the current room is put
+  back if anything goes wrong, so a bad file leaves what you had untouched. The
+  message says what was actually wrong rather than one line for every failure.
+- The preview frame no longer carries `allow-same-origin` alongside
+  `allow-scripts`, which together let a framed page escape the sandbox.
+
+### Added
+
+- **Old and damaged saves repair themselves.** Every file is checked field by
+  field on the way in and anything missing or unusable is replaced with something
+  sensible, rather than the file being refused. Thirteen kinds of damage that
+  used to crash or be rejected now open, and you are told how many details were
+  filled in. A file written by an older version will always open; it will not
+  gain data it never had.
+- Doors, windows and wall fixtures can be selected by clicking them in the Plan
+  view, not only in the sidebar list.
+
 ## [0.0.4] — 2026-09-01
 
 The room stops having to be a rectangle, and the planner starts checking
@@ -67,4 +114,5 @@ a fallback. It planned a single rectangular room with a sloped ceiling, and
 checked that items fit under it, went through the door and left the door free to
 swing. v4 keeps that geometry and builds on it.
 
+[0.0.5]: https://github.com/mAnjra/room-planner/releases/tag/v0.0.5
 [0.0.4]: https://github.com/mAnjra/room-planner/releases/tag/v0.0.4

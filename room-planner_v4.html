@@ -263,7 +263,7 @@
 
   .tag-pin {
     position: absolute; transform: translate(-50%, -50%);
-    pointer-events: auto; cursor: pointer;
+    pointer-events: none;
     display: flex; align-items: stretch;
     background: rgba(14,20,26,.92);
     border: 1px solid var(--rule);
@@ -304,7 +304,7 @@
   #hud .posture .v { color: var(--tape); }
 
   /* title block, let into the bottom-right of the sheet as on a drawing */
-  #title { right: 22px; bottom: 22px; padding: 0; min-width: 236px; }
+  #title { right: 22px; bottom: 22px; padding: 0; min-width: 236px; pointer-events: none; }
   #title .tb { display: flex; border-bottom: 1px solid var(--rule); }
   #title .tb:last-child { border-bottom: none; }
   #title .k {
@@ -318,7 +318,9 @@
   #title .val.name { font-family: var(--ui); font-size: 12px; }
 
   #tip { top: 22px; right: 22px; padding: 8px 26px 8px 11px; font-size: 11px;
-         color: var(--graphite); max-width: 216px; line-height: 1.55; }
+         color: var(--graphite); max-width: 216px; line-height: 1.55;
+         pointer-events: none; }
+  #tipX { pointer-events: auto; }
   #tip b { color: var(--chalk); font-weight: 600; }
   #tipX { position: absolute; top: 3px; right: 3px; border: none; background: none;
           color: var(--graphite); font-size: 15px; line-height: 1; padding: 2px 5px; }
@@ -421,7 +423,7 @@
 <aside id="side">
   <div class="brand">
     <h1>Room Planner</h1>
-    <span class="ver" id="appVer">0.0.4</span>
+    <span class="ver" id="appVer">0.0.5</span>
   </div>
 
   <details class="sect" open>
@@ -738,7 +740,14 @@
       <div id="projList"></div>
       <div class="btnrow" style="margin-top:9px">
         <button id="newBtn">New room</button>
-        <button id="saveAsBtn">Save as&hellip;</button>
+        <button id="saveAsBtn">Save a copy&hellip;</button>
+      </div>
+      <div id="saveAsRow" style="display:none;margin-top:7px">
+        <div class="field"><input type="text" id="saveAsName" placeholder="Name for the copy"></div>
+        <div class="btnrow">
+          <button class="primary" id="saveAsGo">Save the copy</button>
+          <button id="saveAsCancel">Cancel</button>
+        </div>
       </div>
       <div class="btnrow" style="margin-top:6px">
         <button id="expBtn">Export file</button>
@@ -865,7 +874,7 @@ if (typeof THREE === 'undefined') {
   return;
 }
 
-const VERSION = '0.0.4';  // shown in the corner and written into saved files
+const VERSION = '0.0.5';  // shown in the corner and written into saved files
 const S = 0.01;          // centimetres to scene units
 const SNAP = 5;          // grid snap in cm
 const FIG = 175;         // reference person height
@@ -1985,7 +1994,11 @@ cv.addEventListener('pointerdown', e => {
   }
 
   const hits = pick(gObjs, e);
-  const id = hits.length ? hits[0].object.userData.id : null;
+  let id = hits.length ? hits[0].object.userData.id : null;
+  if (id == null && e.button === 0) {
+    const vr = cv.getBoundingClientRect();
+    id = tagAt(e.clientX - vr.left, e.clientY - vr.top);
+  }
   if (id != null && e.button === 0) {
     if (e.shiftKey) selToggle(id); else if (!sel.has(id)) selOnly(id);
     selOpen = null;
@@ -2043,11 +2056,7 @@ function endDrag(e) {
 cv.addEventListener('pointerup', endDrag);
 cv.addEventListener('pointercancel', endDrag);
 
-cv.addEventListener('wheel', e => {
-  e.preventDefault();
-  radius *= (1 + Math.sign(e.deltaY) * 0.09);
-  applyCam();
-}, { passive: false });
+
 
 document.addEventListener('keydown', e => {
   const typing = /INPUT|SELECT|TEXTAREA/.test(e.target.tagName);
@@ -2195,13 +2204,27 @@ function renderProjects() {
     x.className = 'x'; x.textContent = '×'; x.title = 'Delete this project';
     x.onclick = ev => {
       ev.stopPropagation();
-      if (!confirm('Delete "' + (p.name || 'Untitled') + '"? This cannot be undone.')) return;
+      if (x.dataset.armed !== '1') {
+        // ask in place: a second click within a few seconds does it
+        x.dataset.armed = '1';
+        x.textContent = 'Sure?';
+        x.style.color = 'var(--fault)';
+        x.style.fontSize = '11px';
+        clearTimeout(x._t);
+        x._t = setTimeout(() => {
+          x.dataset.armed = '0'; x.textContent = '\u00d7';
+          x.style.color = ''; x.style.fontSize = '';
+        }, 3500);
+        return;
+      }
+      clearTimeout(x._t);
       ls(() => {
         localStorage.removeItem(KEY + '.p.' + p.id);
         localStorage.setItem(KEY + '.list', JSON.stringify(projects().filter(q => q.id !== p.id)));
       });
-      if (p.id === currentId) { currentId = null; }
+      if (p.id === currentId) currentId = null;
       renderProjects();
+      toast('Deleted \u201c' + (p.name || 'Untitled') + '\u201d.');
     };
     el.appendChild(x);
     box.appendChild(el);
@@ -2210,32 +2233,45 @@ function renderProjects() {
 
 /* ============================================================ migration */
 
+// Opening a file is all-or-nothing. Work the new state out in full first,
+// and if anything at all goes wrong put the old one back, so a bad file can
+// never leave half a room on screen next to an error message.
 function adopt(d) {
-  state = migrate(d);
-  normalisePoly();
-  hist = []; future = [];
-  lastSnap = JSON.stringify(state);
-  selClear(); selOpen = null;
-  writeRoom(); fillPresets(); rebuild(); frameRoom(); refreshUndo();
+  const next = migrate(d);
+  const keepState = state, keepLib = library.slice(), keepId = currentId;
+  try {
+    state = next;
+    if (next.pendingLibrary) { addToLibrary(next.pendingLibrary); delete next.pendingLibrary; }
+    normalisePoly();
+    hist = []; future = [];
+    lastSnap = JSON.stringify(state);
+    selClear(); selOpen = null; selFix = null;
+    writeRoom(); fillPresets(); rebuild(); frameRoom(); refreshUndo();
+    const patched = next.repaired || 0;
+    delete next.repaired;
+    return patched;
+  } catch (err) {
+    state = keepState; library = keepLib; currentId = keepId;
+    try { normalisePoly(); writeRoom(); fillPresets(); rebuild(); refreshUndo(); } catch (e2) {}
+    throw new Error('That room could not be opened: ' + (err && err.message ? err.message : 'it is damaged'));
+  }
 }
 
 // v3 files: rectangular room, corner-anchored items, rot 0/1, named walls
 function migrate(d) {
-  if (!d || !d.room) throw new Error('not a room');
+  if (!d || typeof d !== 'object' || Array.isArray(d))
+    throw new Error('that is not a saved room');
+  if (!d.room || typeof d.room !== 'object')
+    throw new Error('there is no room in it');
+  if (d.objects && !Array.isArray(d.objects))
+    throw new Error('its list of things is damaged');
   if (d.v === 4) {
-    d.objects = d.objects || [];
-    d.openings = d.openings || [];
-    if (d.library) { addToLibrary(d.library); delete d.library; }
-    d.fixtures = d.fixtures || [];
-    d.marks = d.marks || [];
-    if (d.room && d.room.person == null) d.room.person = 55;
-    d.objects.forEach(o => {
-      if (o.kind === 'shelf' && !Array.isArray(o.levels)) o.levels = evenLevels(o.h, 4);
-    });
-    if (!d.room.poly || d.room.poly.length < 3) d.room.poly = rectPoly(d.room.w || 300, d.room.d || 300);
+    if (d.library) { d.pendingLibrary = d.library; delete d.library; }
+    d.repaired = repair(d);
     return d;
   }
   const r = d.room;
+  if (!(r.w > 0) || !(r.d > 0)) throw new Error('the room has no size');
   const s = blankState();
   s.room.name = r.name || 'Room';
   s.room.shape = 'rect';
@@ -2258,9 +2294,164 @@ function migrate(d) {
     const pos = (op.wall === 'far' || op.wall === 'right') ? len - op.pos - op.w : op.pos;
     return { ...op, wall: wi, pos: Math.max(0, pos) };
   });
-  if (d.library) addToLibrary(d.library);
+  if (d.library) s.pendingLibrary = d.library;
   s.nextId = Math.max(2, (d.nextId || 2));
+  s.repaired = repair(s);
   return s;
+}
+
+/* =============================================================== repair
+
+   A saved file is data from the past, and the past does not get to be
+   perfect. Rather than trusting a file and falling over on the first field
+   that has gone missing, every value is checked and replaced with something
+   sensible if it cannot be used. An old room opens, possibly with a default
+   or two filled in, instead of refusing to open at all.
+------------------------------------------------------------------------- */
+
+const numOr = (v, dflt) => Number.isFinite(+v) && v !== null && v !== '' ? +v : dflt;
+const colourOr = v => {
+  const n = +v;
+  return Number.isFinite(n) && v !== null && v !== '' ? (n >>> 0) & 0xFFFFFF : 0x6E7F8D;
+};
+const oneOf = (v, list, dflt) => list.indexOf(v) >= 0 ? v : dflt;
+
+function repair(s) {
+  let fixed = 0;
+  const need = (cond) => { if (!cond) fixed++; return cond; };
+
+  /* ---- the room ---- */
+  if (!need(s.room && typeof s.room === 'object')) s.room = {};
+  const r = s.room;
+  if (!need(typeof r.name === 'string' && r.name)) r.name = 'Room';
+  r.person = Math.max(20, Math.min(120, numOr(r.person, 55)));
+
+  let poly = Array.isArray(r.poly) ? r.poly : null;
+  if (poly) poly = poly.filter(p => p && Number.isFinite(+p.x) && Number.isFinite(+p.z))
+                       .map(p => ({ x: +p.x, z: +p.z }));
+  if (!need(poly && poly.length >= 3))
+    poly = rectPoly(Math.max(30, numOr(r.w, 300)), Math.max(30, numOr(r.d, 300)));
+  r.poly = poly;
+
+  const bb = bboxOf(r.poly);
+  r.w = Math.max(30, numOr(r.w, Math.round(bb.w) || 300));
+  r.d = Math.max(30, numOr(r.d, Math.round(bb.d) || 300));
+  r.nw = Math.max(10, numOr(r.nw, 80));
+  r.nd = Math.max(10, numOr(r.nd, 80));
+  r.shape = oneOf(r.shape, ['rect', 'L', 'custom'], 'custom');
+
+  /* ---- the ceiling ---- */
+  if (!need(r.ceiling && typeof r.ceiling === 'object')) r.ceiling = {};
+  const c = r.ceiling;
+  c.mode = oneOf(c.mode, ['flat', 'slope', 'gable', 'profile'], 'flat');
+  c.axis = c.axis === 'x' ? 'x' : 'z';
+  c.hi = Math.max(30, numOr(c.hi, 240));
+  c.lo = Math.max(20, Math.min(c.hi, numOr(c.lo, c.hi)));
+  const prof = Array.isArray(c.profile)
+    ? c.profile.filter(p => p && Number.isFinite(+p.at) && Number.isFinite(+p.h))
+               .map(p => ({ at: +p.at, h: Math.max(20, +p.h) }))
+               .sort((a, b) => a.at - b.at)
+    : null;
+  c.profile = prof && prof.length >= 2 ? prof : null;
+  if (c.mode === 'profile' && !c.profile) { c.mode = 'slope'; fixed++; }
+
+  /* ---- the things in it ---- */
+  const seenIds = new Set();
+  let nextId = Math.max(2, numOr(s.nextId, 2));
+  const freshId = () => { while (seenIds.has(nextId)) nextId++; return nextId++; };
+
+  s.objects = (Array.isArray(s.objects) ? s.objects : [])
+    .filter(o => need(o && typeof o === 'object'))
+    .map(o => {
+      const id = Number.isFinite(+o.id) && !seenIds.has(+o.id) ? +o.id : (fixed++, freshId());
+      seenIds.add(id);
+      const w = Math.max(1, numOr(o.w, 50)), d = Math.max(1, numOr(o.d, 50));
+      const h = Math.max(1, numOr(o.h, 50));
+      const out = {
+        ...o, id,
+        name: typeof o.name === 'string' && o.name ? o.name : 'Item',
+        w, d, h,
+        x: numOr(o.x, (bb.x0 + bb.x1) / 2),
+        z: numOr(o.z, (bb.z0 + bb.z1) / 2),
+        y: Math.max(0, numOr(o.y, 0)),
+        rot: ((numOr(o.rot, 0) % 360) + 360) % 360,
+        c: colourOr(o.c)
+      };
+      if (!Number.isFinite(+o.c) || o.c === null) fixed++;
+      if (out.kind === 'shelf') {
+        const lv = Array.isArray(out.levels)
+          ? out.levels.filter(v => Number.isFinite(+v) && +v > 0).map(v => Math.min(h, +v))
+                      .sort((a, b) => a - b)
+          : null;
+        out.levels = lv && lv.length ? lv : (fixed++, evenLevels(h, 4));
+      } else {
+        delete out.levels;
+      }
+      if (out.meta && typeof out.meta !== 'object') { delete out.meta; fixed++; }
+      return out;
+    });
+
+  // a thing cannot ride on a bay that is not there any more
+  const ids = new Set(s.objects.map(o => o.id));
+  s.objects.forEach(o => {
+    if (o.parent == null) return;
+    const p = s.objects.find(q => q.id === o.parent);
+    if (!p || p.kind !== 'shelf' || !p.levels || p.levels[o.level] == null) {
+      delete o.parent; delete o.level; fixed++;
+    }
+  });
+
+  /* ---- openings and fixtures, which live on walls ---- */
+  const wallCount = r.poly.length;
+  const onWall = v => Number.isInteger(+v) && +v >= 0 && +v < wallCount ? +v : (fixed++, 0);
+
+  s.openings = (Array.isArray(s.openings) ? s.openings : [])
+    .filter(o => o && typeof o === 'object')
+    .map(o => {
+      const id = Number.isFinite(+o.id) && !seenIds.has(+o.id) ? +o.id : freshId();
+      seenIds.add(id);
+      return {
+        ...o, id,
+        type: o.type === 'window' ? 'window' : 'door',
+        name: typeof o.name === 'string' && o.name ? o.name : (o.type === 'window' ? 'Window' : 'Door'),
+        wall: onWall(o.wall),
+        pos: Math.max(0, numOr(o.pos, 0)),
+        w: Math.max(10, numOr(o.w, 76)),
+        h: Math.max(10, numOr(o.h, 198)),
+        sill: Math.max(0, numOr(o.sill, 0)),
+        hinge: o.hinge === 'right' ? 'right' : 'left',
+        swing: oneOf(o.swing, ['in', 'out', 'slide'], 'in')
+      };
+    });
+
+  s.fixtures = (Array.isArray(s.fixtures) ? s.fixtures : [])
+    .filter(f => f && typeof f === 'object')
+    .map(f => {
+      const id = Number.isFinite(+f.id) && !seenIds.has(+f.id) ? +f.id : freshId();
+      seenIds.add(id);
+      const type = FIXTURES[f.type] ? f.type : (fixed++, 'socket');
+      const spec = FIXTURES[type];
+      return {
+        ...f, id, kind: 'fixture', type,
+        name: typeof f.name === 'string' && f.name ? f.name : spec.label,
+        wall: onWall(f.wall),
+        pos: Math.max(0, numOr(f.pos, 0)),
+        w: Math.max(2, numOr(f.w, spec.w)),
+        h: Math.max(2, numOr(f.h, spec.h)),
+        y: Math.max(0, numOr(f.y, spec.y)),
+        clear: Math.max(0, numOr(f.clear, spec.clear))
+      };
+    });
+
+  s.marks = (Array.isArray(s.marks) ? s.marks : []).filter(m =>
+    m && m.a && m.b &&
+    Number.isFinite(+m.a.x) && Number.isFinite(+m.a.z) &&
+    Number.isFinite(+m.b.x) && Number.isFinite(+m.b.z))
+    .map(m => ({ a: { x: +m.a.x, z: +m.a.z }, b: { x: +m.b.x, z: +m.b.z } }));
+
+  s.nextId = Math.max(nextId, ...[...seenIds].map(v => v + 1), 2);
+  s.v = 4;
+  return fixed;
 }
 
 /* ==================================================================== ui */
@@ -2274,6 +2465,26 @@ function fillColours(sel) {
     o.value = v; o.textContent = n;
     sel.appendChild(o);
   });
+}
+
+// Show whatever colour the item actually has, even one from an older palette.
+// Leaving the menu blank was how a colour turned into NaN, and NaN is written
+// to a file as null, which then would not load at all.
+function setColourSelect(sel, c) {
+  const v = '0x' + ((c >>> 0) & 0xFFFFFF).toString(16).padStart(6, '0');
+  [...sel.options].forEach(o => { if (o.dataset.kept && o.value !== v) o.remove(); });
+  if (![...sel.options].some(o => o.value === v)) {
+    const o = document.createElement('option');
+    o.value = v; o.textContent = 'As saved'; o.dataset.kept = '1';
+    sel.appendChild(o);
+  }
+  sel.value = v;
+}
+
+// never let a menu that has gone blank turn into a colour
+function readColour(sel, fallback) {
+  const n = parseInt(sel.value, 16);
+  return Number.isFinite(n) ? n : fallback;
 }
 
 function allPresets() {
@@ -2315,7 +2526,7 @@ function renderLibrary() {
   library.forEach((m, i) => {
     const el = document.createElement('div');
     el.className = 'row';
-    el.innerHTML = '<span class="sw" style="background:#' + (m.c || 0x6E7F8D).toString(16).padStart(6,'0') +
+    el.innerHTML = '<span class="sw" style="background:' + hex(m.c) +
                    '"></span><span class="nm"></span><span class="dm">' +
                    (m.parts ? m.parts.length + ' pieces' : m.w + '×' + m.d + '×' + m.h) + '</span>';
     el.querySelector('.nm').textContent = m.n;
@@ -2442,6 +2653,15 @@ function fillWallSelect(which) {
   if (prev && sel.querySelector('option[value="' + prev + '"]')) sel.value = prev;
 }
 
+// A collapsed section hides the panel that edits whatever was just picked,
+// which reads as "clicking it did nothing".
+function openPanelFor(what) {
+  const el = $(what && what.fix != null ? 'fixSect' : 'openSect');
+  if (!el) return;
+  const det = el.closest('details');
+  if (det && !det.open) det.open = true;
+}
+
 function renderOpenings() {
   const box = $('openList');
   box.innerHTML = '';
@@ -2474,18 +2694,20 @@ function renderOpenings() {
 
 function addOpening(type) {
   const w = type === 'door' ? 76 : 90;
-  const wall = 0;
+  const spot = freeWallSpot(w);
   const op = {
     id: state.nextId++, type,
     name: type === 'door' ? 'Door' : 'Window',
-    wall, pos: Math.max(0, Math.round((wallLen(wall) - w) / 2)),
+    wall: spot.wall, pos: spot.pos,
     w, h: type === 'door' ? 198 : 100,
     sill: type === 'window' ? 90 : 0,
     hinge: 'left', swing: 'in'
   };
   state.openings.push(op);
-  selOpen = op.id; selected = null;
+  selOpen = op.id; selClear(); selFix = null;
+  openPanelFor({ open: op.id });
   rebuild(); commit();
+  toast(op.name + ' added to ' + wallLabel(op.wall).split(' \u00b7 ')[1] + '.');
 }
 
 function problemList() {
@@ -2551,7 +2773,7 @@ function renderUI() {
     el.className = 'row' + (sel.has(o.id) ? ' sel' : '') + (bad ? ' bad' : '');
     el.innerHTML = '<span class="tag"></span>' +
       (m.photo ? '<img class="thumb" alt="">'
-               : '<span class="sw" style="background:#' + (bad ? 0xE4574D : o.c).toString(16).padStart(6,'0') + '"></span>') +
+               : '<span class="sw" style="background:' + hex(bad ? 0xE4574D : o.c) + '"></span>') +
       '<span class="nm"></span>' +
       (m.qty > 1 ? '<span class="dm qty"></span>' : '') +
       '<span class="dm">' + o.w + '×' + o.d + '×' + o.h + '</span>';
@@ -2609,7 +2831,7 @@ function renderUI() {
     $('pW').value = o.w; $('pD').value = o.d; $('pH').value = o.h;
     $('pX').value = Math.round(o.x); $('pZ').value = Math.round(o.z);
     $('pY').value = Math.round(o.y || 0); $('pRot').value = Math.round(o.rot || 0);
-    $('pCol').value = '0x' + o.c.toString(16).padStart(6, '0');
+    setColourSelect($('pCol'), o.c);
     $('metaFld').style.display = '';
     renderMeta(o);
     $('shelfFld').style.display = isShelf(o) ? '' : 'none';
@@ -2812,7 +3034,7 @@ function writeRoom() {
     o.w = Math.max(1, +$('pW').value || 1);
     o.d = Math.max(1, +$('pD').value || 1);
     o.h = Math.max(1, +$('pH').value || 1);
-    o.c = parseInt($('pCol').value, 16);
+    o.c = readColour($('pCol'), o.c);
     o.x = +$('pX').value || 0;
     o.z = +$('pZ').value || 0;
     o.y = Math.max(0, +$('pY').value || 0);
@@ -3077,16 +3299,18 @@ function blockedFixture(f) {
 
 function addFixture(type) {
   const spec = FIXTURES[type];
-  const w = Math.min(spec.w, Math.max(10, wallLen(0) - 10));
+  const w = Math.min(spec.w, Math.max(10, (WALLS[0] ? WALLS[0].len : spec.w) - 10));
+  const spot = freeWallSpot(w);
   const f = {
     id: state.nextId++, kind: 'fixture', type,
-    name: spec.label, wall: 0,
-    pos: Math.max(0, Math.round((wallLen(0) - w) / 2)),
+    name: spec.label, wall: spot.wall, pos: spot.pos,
     w, h: spec.h, y: spec.y, clear: spec.clear
   };
   state.fixtures.push(f);
   selFix = f.id; selClear(); selOpen = null;
+  openPanelFor({ fix: f.id });
   rebuild(); commit();
+  toast(f.name + ' added to ' + wallLabel(f.wall).split(' \u00b7 ')[1] + '.');
 }
 
 function buildFixtures() {
@@ -3250,7 +3474,7 @@ $('mSave').onclick = () => {
   if (!n) { $('mName').focus(); return; }
   addToLibrary([{
     n, w: Math.max(1, +$('mW').value || 1), d: Math.max(1, +$('mD').value || 1),
-    h: Math.max(1, +$('mH').value || 1), c: parseInt($('mCol').value, 16)
+    h: Math.max(1, +$('mH').value || 1), c: readColour($('mCol'), 0x6E7F8D)
   }]);
   $('mName').value = '';
   fillPresets();
@@ -3289,7 +3513,7 @@ $('mFrom').onclick = () => {
   const o = selOne();
   if (!o) return;
   $('mName').value = o.name; $('mW').value = o.w; $('mD').value = o.d; $('mH').value = o.h;
-  $('mCol').value = '0x' + o.c.toString(16).padStart(6,'0');
+  setColourSelect($('mCol'), o.c);
 };
 
 $('addDoor').onclick = () => addOpening('door');
@@ -3338,12 +3562,24 @@ $('fileIn').onchange = e => {
   if (!f) return;
   const fr = new FileReader();
   fr.onload = () => {
+    let data;
     try {
-      adopt(JSON.parse(fr.result));
+      data = JSON.parse(fr.result);
+    } catch (err) {
+      toast('That file is not readable \u2014 it is not JSON.');
+      return;
+    }
+    try {
+      const patched = adopt(data);
       currentId = 'p' + Date.now();
       save(true);
+      toast(patched
+        ? 'Opened \u201c' + (state.room.name || 'Untitled') + '\u201d. ' + patched +
+          (patched === 1 ? ' detail was missing and has been' : ' details were missing and have been') +
+          ' filled in.'
+        : 'Opened \u201c' + (state.room.name || 'Untitled') + '\u201d.');
     } catch (err) {
-      toast("That file isn't a saved room.");
+      toast(err && err.message ? err.message : 'That file is not a saved room.');
     }
   };
   fr.readAsText(f);
@@ -3362,13 +3598,30 @@ $('newBtn').onclick = () => {
   save(true);
 };
 
+// Browsers let people switch off prompt() and confirm() for a page, after
+// which anything built on them fails silently and for good. Nothing here
+// depends on them.
 $('saveAsBtn').onclick = () => {
-  const n = prompt('Save this room as:', state.room.name || 'Room');
-  if (n == null) return;
-  state.room.name = n.trim() || 'Room';
-  $('rName').value = state.room.name;
+  $('saveAsRow').style.display = '';
+  $('saveAsName').value = (state.room.name || 'Room') + ' copy';
+  $('saveAsName').focus();
+  $('saveAsName').select();
+};
+$('saveAsCancel').onclick = () => { $('saveAsRow').style.display = 'none'; };
+$('saveAsName').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); $('saveAsGo').click(); }
+  if (e.key === 'Escape') { e.preventDefault(); $('saveAsCancel').click(); }
+});
+$('saveAsGo').onclick = () => {
+  const n = ($('saveAsName').value || '').trim();
+  if (!n) { $('saveAsName').focus(); return; }
+  state.room.name = n;
+  $('rName').value = n;
   currentId = 'p' + Date.now();
-  renderUI(); save(true);
+  $('saveAsRow').style.display = 'none';
+  renderUI();
+  save(true);
+  toast('Saved a copy as \u201c' + n + '\u201d.');
 };
 
 document.querySelectorAll('[data-t]').forEach(b => b.onchange = () => {
@@ -3676,11 +3929,6 @@ function updateOverlay() {
       if (!el) {
         el = document.createElement('div');
         el.className = 'tag-pin';
-        el.onpointerdown = ev => {
-          ev.stopPropagation();
-          if (ev.shiftKey) selToggle(o.id); else selOnly(o.id);
-          selOpen = null; redraw();
-        };
         tagBox.appendChild(el);
         tagEls.set(o.id, el);
       }
@@ -3708,9 +3956,52 @@ function updateOverlay() {
   tagEls.forEach((el, id) => { if (!live.has(id)) { el.remove(); tagEls.delete(id); } });
 }
 
+// Tags no longer take pointer events of their own, so the canvas has to find
+// them. They are drawn centred on their position, hence the half sizes.
+function tagAt(px, py) {
+  for (const [id, el] of tagEls) {
+    if (!el.offsetWidth) continue;
+    const l = parseFloat(el.style.left), t = parseFloat(el.style.top);
+    if (Math.abs(px - l) <= el.offsetWidth / 2 && Math.abs(py - t) <= el.offsetHeight / 2) return id;
+  }
+  return null;
+}
+
+// Somewhere on a wall with room for something this wide, not already taken by
+// a door, a window or a fixture. Openings dropped on top of each other were
+// invisible and impossible to pick.
+function freeWallSpot(width, skipId) {
+  const taken = w => state.openings.filter(o => o.wall === w && o.id !== skipId)
+    .map(o => [o.pos, o.pos + o.w])
+    .concat(state.fixtures.filter(f => f.wall === w && f.id !== skipId)
+      .map(f => [f.pos, f.pos + f.w]));
+  const order = WALLS.slice().sort((a, b) => b.len - a.len);
+  for (const w of order) {
+    if (w.len < width + 8) continue;
+    const spans = taken(w.i);
+    for (let pos = 4; pos <= w.len - width - 4; pos += 4) {
+      if (!spans.some(([a, b]) => pos < b + 4 && pos + width > a - 4)) return { wall: w.i, pos };
+    }
+  }
+  // nowhere is clear, so put it on the longest wall and let the checks complain
+  const w = order[0] || WALLS[0];
+  return { wall: w ? w.i : 0, pos: Math.max(0, Math.round(((w ? w.len : width) - width) / 2)) };
+}
+
+// how near the pointer is to a span of wall, in screen pixels
+function nearWallSpan(px, py, wall, pos, width) {
+  const a = uo2xz(wall, pos, 0), b = uo2xz(wall, pos + width, 0);
+  const A = toScreen(a.x, 0, a.z), B = toScreen(b.x, 0, b.z);
+  const dx = B.X - A.X, dy = B.Y - A.Y;
+  const L2 = dx*dx + dy*dy;
+  const t = L2 ? Math.max(0, Math.min(1, ((px - A.X)*dx + (py - A.Y)*dy) / L2)) : 0;
+  return Math.hypot(px - (A.X + dx*t), py - (A.Y + dy*t));
+}
+
 /* ============================================================ plan canvas */
 
-const hex = c => '#' + c.toString(16).padStart(6, '0');
+const hex = c => '#' + (Number.isFinite(+c) ? ((+c >>> 0) & 0xFFFFFF) : 0x6E7F8D)
+  .toString(16).padStart(6, '0');
 
 function fit2() {
   const W = view.clientWidth, H = view.clientHeight;
@@ -4017,6 +4308,28 @@ cv2.addEventListener('pointerdown', e => {
 
   if (tool === 'measure' && e.button === 0) { measureClick(r); return; }
 
+  if (e.button === 0) {
+    // doors, windows and wall fixtures are pickable where they are drawn. The
+    // band is narrow, so hitting it means you aimed at the wall.
+    let best = null;
+    state.openings.forEach(op => {
+      const d = nearWallSpan(p.X, p.Y, op.wall, op.pos, op.w);
+      if (d < 9 && (!best || d < best.d)) best = { d, open: op.id };
+    });
+    state.fixtures.forEach(f => {
+      const d = nearWallSpan(p.X, p.Y, f.wall, f.pos, f.w);
+      if (d < 9 && (!best || d < best.d)) best = { d, fix: f.id };
+    });
+    if (best) {
+      selClear();
+      selOpen = best.open != null ? best.open : null;
+      selFix  = best.fix  != null ? best.fix  : null;
+      openPanelFor(best);
+      rebuild();
+      return;
+    }
+  }
+
   const one = selOne();
   if (one) {
     const h = turnHandle(one);
@@ -4028,10 +4341,14 @@ cv2.addEventListener('pointerdown', e => {
     }
   }
 
-  // topmost item under the pointer wins
+  // topmost item under the pointer wins, then its label if nothing else is there
   let hitO = null;
   for (let i = state.objects.length - 1; i >= 0; i--) {
     if (inFootprint(state.objects[i], r)) { hitO = state.objects[i]; break; }
+  }
+  if (!hitO && e.button === 0) {
+    const tid = tagAt(p.X, p.Y);
+    if (tid != null) hitO = state.objects.find(q => q.id === tid);
   }
   if (hitO) {
     if (e.shiftKey) selToggle(hitO.id);
@@ -4108,17 +4425,24 @@ function end2(e) {
 cv2.addEventListener('pointerup', end2);
 cv2.addEventListener('pointercancel', end2);
 
-cv2.addEventListener('wheel', e => {
-  if (viewMode !== 'plan') return;
+// Zoom listens on the whole viewport rather than the canvas, so the title
+// block, the tags and any other plate floating over the drawing cannot
+// swallow the wheel.
+view.addEventListener('wheel', e => {
   e.preventDefault();
-  const p = ptOf(e);
-  planTouched = true;
-  const before = { x:(p.X - view2.ox)/view2.s, z:(p.Y - view2.oy)/view2.s };
-  view2.s *= (1 - Math.sign(e.deltaY) * 0.12);
-  view2.s = Math.max(0.05, Math.min(24, view2.s));
-  view2.ox = p.X - before.x * view2.s;
-  view2.oy = p.Y - before.z * view2.s;
-  draw2();
+  if (viewMode === 'plan') {
+    const p = ptOf(e);
+    planTouched = true;
+    const before = { x:(p.X - view2.ox)/view2.s, z:(p.Y - view2.oy)/view2.s };
+    view2.s *= (1 - Math.sign(e.deltaY) * 0.12);
+    view2.s = Math.max(0.05, Math.min(24, view2.s));
+    view2.ox = p.X - before.x * view2.s;
+    view2.oy = p.Y - before.z * view2.s;
+    draw2();
+  } else {
+    radius *= (1 + Math.sign(e.deltaY) * 0.09);
+    applyCam();
+  }
 }, { passive: false });
 
 /* ============================================================ tape measure
@@ -4655,7 +4979,91 @@ function selfTest() {
   const sn2 = snapTarget({ x: 150, z: 150 }, 20);
   ok('a click in open floor stays where it was put', near(sn2.x, 150) && near(sn2.z, 150));
 
-  // 16. only real web addresses ever become links
+  // 16. a new door or window goes somewhere free, never on top of another
+  use(rectPoly(300, 300));
+  state.openings = [{ id:1, name:'Door', type:'door', wall:0, pos:110, w:80, h:198,
+                      sill:0, hinge:'left', swing:'in' }];
+  state.fixtures = [];
+  const spot = freeWallSpot(90);
+  const clash = state.openings.some(o =>
+    o.wall === spot.wall && spot.pos < o.pos + o.w && spot.pos + 90 > o.pos);
+  ok('a new opening is not placed on top of an existing one', !clash);
+  ok('and it still lands on a real wall', !!wallOf(spot.wall));
+
+  // fill wall 0 completely and it has to go elsewhere
+  state.openings = WALLS.map((w, i) => ({ id: 900 + i, name:'D', type:'door', wall:0,
+    pos:0, w: w.i === 0 ? w.len : 1, h:198, sill:0, hinge:'left', swing:'in' }))
+    .filter(o => o.w > 1);
+  const spot2 = freeWallSpot(60);
+  ok('a full wall pushes the next opening onto another one', spot2.wall !== 0);
+  state.openings = [];
+
+  // 17. a file that is not a room is refused before anything is touched
+  const bad = [
+    [null, 'nothing at all'],
+    [[1, 2, 3], 'a list'],
+    [{ v:4, objects:[] }, 'no room in it'],
+    [{ v:4, room:{}, objects:'nope' }, 'a damaged item list'],
+    [{ room:{ name:'x', mode:'flat' }, objects:[] }, 'a v3 room with no size']
+  ];
+  let refused = 0;
+  bad.forEach(([d]) => { try { migrate(d); } catch (e) { refused++; } });
+  ok('every kind of broken file is refused', refused === bad.length);
+  ok('and a real one is not', !!migrate(JSON.parse(JSON.stringify({
+    v:4, room:{ name:'ok', shape:'rect', w:200, d:200,
+                poly: rectPoly(200,200), ceiling:{ mode:'flat', axis:'z', hi:240, lo:240 } },
+    objects:[], openings:[], fixtures:[], marks:[], nextId:2 }))));
+
+  // 18. an old or damaged save is repaired rather than refused, because a
+  // file written months ago cannot be expected to know about later fields
+  const sound = () => ({ v:4,
+    room:{ name:'R', shape:'rect', w:300, d:300, poly: rectPoly(300,300),
+           ceiling:{ mode:'flat', axis:'z', hi:240, lo:240, profile:null }, person:55 },
+    objects:[{ id:2, name:'Box', w:40, d:30, h:30, c:0x6E7F8D, x:60, z:60, y:0, rot:0 }],
+    openings:[], fixtures:[], marks:[], nextId:3 });
+
+  ok('a sound file needs no repairs', repair(sound()) === 0);
+
+  // the exact failure an older palette caused: NaN is written to a file as null
+  ok('NaN is stored in a file as null', JSON.parse(JSON.stringify({ c: NaN })).c === null);
+  const noColour = sound(); noColour.objects[0].c = null;
+  ok('a colourless item is given one', repair(noColour) > 0 && Number.isFinite(noColour.objects[0].c));
+
+  const noCeil = sound(); noCeil.room.ceiling = null;
+  repair(noCeil);
+  ok('a missing ceiling is replaced', noCeil.room.ceiling.mode === 'flat');
+
+  const noPoly = sound(); noPoly.room.poly = [{ x:0, z:0 }, { x:9, z:0 }];
+  repair(noPoly);
+  ok('a polygon too small to be a room is rebuilt', noPoly.room.poly.length >= 3);
+
+  const dupes = sound();
+  dupes.objects = [{ id:5, name:'A', w:1, d:1, h:1, c:1, x:0, z:0 },
+                   { id:5, name:'B', w:1, d:1, h:1, c:1, x:0, z:0 }];
+  repair(dupes);
+  ok('two things cannot share an id', dupes.objects[0].id !== dupes.objects[1].id);
+
+  const orphan = sound();
+  orphan.objects[0].parent = 999; orphan.objects[0].level = 4;
+  repair(orphan);
+  ok('a thing on a bay that is gone is set down', orphan.objects[0].parent == null);
+
+  const junk = sound();
+  junk.openings = [{ id:7, type:'door', wall:99, pos:'x', w:null, h:198 }];
+  junk.fixtures = [{ id:8, type:'unicorn', wall:5, pos:null, w:null }];
+  junk.marks = [{ a:null, b:{ x:1, z:1 } }, { a:{ x:0, z:0 }, b:{ x:5, z:5 } }];
+  repair(junk);
+  ok('an opening with nonsense in it is made usable',
+     junk.openings[0].wall === 0 && junk.openings[0].w >= 10);
+  ok('a fixture of an unknown kind becomes a known one', !!FIXTURES[junk.fixtures[0].type]);
+  ok('a broken measurement is dropped and a good one kept', junk.marks.length === 1);
+
+  const bare = { v:4, room:{ name:'Bare' } };
+  repair(bare);
+  ok('a room with nothing but a name still opens',
+     bare.room.poly.length >= 3 && Array.isArray(bare.objects) && Array.isArray(bare.openings));
+
+  // 19. only real web addresses ever become links
   ok('a bare host gets https',        safeUrl('example.com/x') === 'https://example.com/x');
   ok('a script url is refused',       safeUrl('javascript:alert(1)') === null);
   ok('a data url is refused',         safeUrl('data:text/html,<b>') === null);
@@ -4690,7 +5098,7 @@ if (location.hash === '#selftest') {
 /* expose the geometry core so the self-check can drive it */
 window.RP = { state: () => state, insidePoly, overlap, uo2xz, ceilingAt, inRoom,
               corners, walls: () => WALLS, rebuild, signedArea, segCross, migrate,
-              set: s => { adopt(s); },
+              set: s => adopt(s), repair,
               toScreen, view2: () => view2, setMode, sel: () => [...sel],
               snapPos, aabb, alignSel, dimSpecs, mode: () => viewMode,
               checkAccess, access: () => access, renderAccess, renderUI };
