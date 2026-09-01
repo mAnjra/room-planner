@@ -1,0 +1,53 @@
+# Push a version tag and GitHub publishes a release with the app attached:
+#
+#   git tag -a v0.0.4 -m "..." && git push origin v0.0.4
+#
+# The build is rebuilt here from source rather than trusted, so a tag can never
+# ship a file that does not match the source it claims to come from.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rebuild from source
+        run: ./build-planner.sh
+
+      - name: Check the committed build matches its source
+        run: |
+          if ! git diff --quiet -- room-planner_v4.html; then
+            echo "::error::room-planner_v4.html is out of date. Run ./build-planner.sh and commit the result."
+            git diff --stat -- room-planner_v4.html
+            exit 1
+          fi
+
+      - name: Pull the notes for this version out of the changelog
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          awk -v v="$v" '
+            $0 ~ "^## \\[" v "\\]" { on = 1; next }
+            on && /^## / { exit }
+            on { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "No entry for $v in CHANGELOG.md" > notes.md
+          fi
+          cat notes.md
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            room-planner_v4.html \
+            --title "Room Planner $GITHUB_REF_NAME" \
+            --notes-file notes.md

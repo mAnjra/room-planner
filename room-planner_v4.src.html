@@ -421,7 +421,7 @@
 <aside id="side">
   <div class="brand">
     <h1>Room Planner</h1>
-    <span class="ver">v4</span>
+    <span class="ver" id="appVer">0.0.4</span>
   </div>
 
   <details class="sect" open>
@@ -857,6 +857,7 @@ if (typeof THREE === 'undefined') {
   return;
 }
 
+const VERSION = '0.0.4';  // shown in the corner and written into saved files
 const S = 0.01;          // centimetres to scene units
 const SNAP = 5;          // grid snap in cm
 const FIG = 175;         // reference person height
@@ -3315,7 +3316,7 @@ $('undoBtn').onclick = undo;
 $('redoBtn').onclick = redo;
 
 $('expBtn').onclick = () => {
-  const blob = new Blob([JSON.stringify({ ...state, library }, null, 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify({ ...state, library, app: VERSION }, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = (state.room.name || 'room').replace(/[^\w\-]+/g, '-').toLowerCase() + '.json';
@@ -4413,6 +4414,9 @@ function resize() {
   ovlDirty = true;
 }
 window.addEventListener('resize', resize);
+
+$('appVer').textContent = VERSION;
+$('appVer').title = 'Room Planner ' + VERSION;
 
 fillColours($('pCol'));
 fillColours($('mCol'));
