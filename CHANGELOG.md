@@ -3,6 +3,19 @@
 Notable changes to this project. Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and [semantic versioning](https://semver.org/) — pre-1.0, so anything may still move.
 
+## [0.0.7] — 2026-09-04
+
+### Fixed
+
+- **Editing one item's labels edited its copies too.** *Copy* built the new item
+  with a shallow copy, so the original and every copy of it held one and the
+  same details between them. Typing a label on either wrote it to both, and the
+  same went for notes, category, code, price, quantity and the photo — and a
+  copied shelving bay shared its board heights, so moving a board on one moved
+  it on the other. A copy is now wholly its own item. Copies made before this
+  version separate themselves as soon as the project is reloaded, so existing
+  work is not stuck that way.
+
 ## [0.0.6] — 2026-09-03
 
 A new name, two things that made shelving painful to use, and three features.
@@ -174,6 +187,7 @@ a fallback. It planned a single rectangular room with a sloped ceiling, and
 checked that items fit under it, went through the door and left the door free to
 swing. v4 keeps that geometry and builds on it.
 
+[0.0.7]: https://github.com/mAnjra/room-planner/releases/tag/v0.0.7
 [0.0.6]: https://github.com/mAnjra/room-planner/releases/tag/v0.0.6
 [0.0.5]: https://github.com/mAnjra/room-planner/releases/tag/v0.0.5
 [0.0.4]: https://github.com/mAnjra/room-planner/releases/tag/v0.0.4

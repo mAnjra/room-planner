@@ -434,7 +434,7 @@
 <aside id="side">
   <div class="brand">
     <h1>Baby Dragon Poo</h1>
-    <span class="ver" id="appVer">0.0.6</span>
+    <span class="ver" id="appVer">0.0.7</span>
   </div>
 
   <details class="sect" open>
@@ -904,7 +904,7 @@ if (typeof THREE === 'undefined') {
   return;
 }
 
-const VERSION = '0.0.6';  // shown in the corner and written into saved files
+const VERSION = '0.0.7';  // shown in the corner and written into saved files
 const S = 0.01;          // centimetres to scene units
 const SNAP = 5;          // grid snap in cm
 const FIG = 175;         // reference person height
@@ -2783,12 +2783,17 @@ function rotateSel() {
   redraw(); commit();
 }
 
+// A copy has to share nothing with what it was copied from. Object.assign only
+// copies the top level, which left the pair holding one meta object and one
+// list of boards between them, so editing either quietly edited both.
+const copyOf = o => JSON.parse(JSON.stringify(o));
+
 function dupSel() {
   const list = selObjects();
   if (!list.length) return;
   const made = [];
   list.forEach(o => {
-    const n = Object.assign({}, o, { id: state.nextId++ });
+    const n = Object.assign(copyOf(o), { id: state.nextId++ });
     const spot = findSpot(n);
     n.x = spot.x; n.z = spot.z;
     state.objects.push(n);
@@ -5494,6 +5499,20 @@ function selfTest() {
      labelsOff.size === 0 && labelsOf(crate).length === 2);
   labelsShown = true;
   ok('and puts them all back', tagText(crate, 0).l === 'fragile · winter');
+
+  // 20a. a copy must share nothing with the item it came from
+  const src = { id:1, name:'Crate', kind:'shelf', levels:[30,60,90],
+                w:60, d:40, h:100, c:0, x:0, z:0, y:0, rot:0,
+                meta:{ labels:'fragile', notes:'handle with care' } };
+  const dup = copyOf(src);
+  dup.meta.labels = 'winter';
+  dup.meta.notes = 'anything';
+  dup.levels[0] = 99;
+  ok('a copy gets labels of its own',  src.meta.labels === 'fragile');
+  ok('and notes of its own',           src.meta.notes === 'handle with care');
+  ok('and boards of its own',          src.levels[0] === 30);
+  ok('while still being a faithful copy',
+     dup.name === src.name && dup.w === src.w && dup.levels.length === 3);
 
   // 20b. red on the drawing and the list below always agree on why
   use(rectPoly(300, 300));
