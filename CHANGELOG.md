@@ -3,6 +3,66 @@
 Notable changes to this project. Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and [semantic versioning](https://semver.org/) — pre-1.0, so anything may still move.
 
+## [0.0.6] — 2026-09-03
+
+A new name, two things that made shelving painful to use, and three features.
+
+### Changed
+
+- **The app is now called Baby Dragon Poo.** Name only — the file is still
+  `room-planner_v4.html`, so existing download links and saved projects are
+  untouched.
+
+### Added
+
+- **Labels on items.** Type any labels you like on an item — `fragile, winter` —
+  and they appear on its tag in both the plan and the model view. One **Labels**
+  switch on the bottom bar takes them all off and puts them all back; the
+  individual ones sit under the Show menu, so a roomful of labels can never
+  crowd the bar out. Switching a label off only stops it being drawn — nothing
+  in the room moves or disappears. Labels are searched by
+  the register and carried into the CSV export. This is separate from the
+  Numbers / Names / Names and sizes setting next to it, which is unchanged.
+- **Shift-drag to raise and lower.** Hold Shift while dragging an item and it
+  goes up and down instead of across the floor, in both the plan and the model
+  view. Let go of Shift and it carries on sliding from wherever it is, without
+  leaping to catch up with the pointer. Lifting something off a shelf board lets
+  go of the board rather than being snapped straight back down; lifting a bay
+  still carries its contents up with it.
+- **Space left.** A panel saying how much floor is clear and how much you can
+  store in it, allowing for the ceiling and ignoring floor a door sweeps. It
+  names the biggest empty rectangles with the headroom over each, and for every
+  one lists what would go there — from the built-in items, from your own saved
+  ones, and from another of whatever is already in the room — with a button that
+  puts one there. Tick **Biggest gaps** in the Show menu to see them on the plan.
+
+- **Every red item now says why it is red.** Hover it in the list under *In this
+  room* and you get the reasons in full. Red means any one of six checks failed —
+  too tall for the ceiling, through a wall, inside something, will not fit
+  through the door, in the door's swing, or cannot be reached — and it was easy
+  to assume it always meant the third. The colour and the problems list are now
+  built from the same function, so they can never disagree.
+
+### Fixed
+
+- **A box inside a shelving bay was reported as being inside the bay.** A bay is
+  a frame — four corner posts and some boards — but every check treated it as a
+  solid crate the full height of the bay. So a box on the floor under the lowest
+  board, or set down on a board without having been formally put on it, came up
+  as "is inside another item". The bay's posts and boards are now what counts as
+  solid, and the air between them is air. A box that really does foul a board or
+  a post is still caught.
+- **Clicking a box on a shelf in the model view picked up the whole bay.** Each
+  bay carried a single invisible box over its entire volume to catch clicks,
+  which sat nearer the camera than anything standing inside it and took every
+  click aimed there. The bay is now clicked by its actual boards and posts, drawn
+  from the same list the collision maths uses, so the two cannot drift apart.
+- **Dragging in the model view could move something other than what you grabbed.**
+  The drag followed whichever item was primary in the selection rather than the
+  one the click landed on, so after picking out several things at once, clicking
+  one of them and dragging moved a different one. It now follows what you
+  grabbed, the way the plan view already did.
+
 ## [0.0.5] — 2026-09-01
 
 Bug fixes, all of them found by using it. The important one is that the app
@@ -114,5 +174,6 @@ a fallback. It planned a single rectangular room with a sloped ceiling, and
 checked that items fit under it, went through the door and left the door free to
 swing. v4 keeps that geometry and builds on it.
 
+[0.0.6]: https://github.com/mAnjra/room-planner/releases/tag/v0.0.6
 [0.0.5]: https://github.com/mAnjra/room-planner/releases/tag/v0.0.5
 [0.0.4]: https://github.com/mAnjra/room-planner/releases/tag/v0.0.4

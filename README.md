@@ -1,4 +1,4 @@
-# Room Planner
+# Baby Dragon Poo
 
 A room planner that runs from a single HTML file. Download it, double-click it,
 and it works — no install, no server, no internet.
@@ -22,7 +22,8 @@ custom profile where you set the height at points across the room. A colour map
 on the floor shows where you can stand, stoop, crouch, kneel or only crawl.
 
 **Two views over one plan.** Work in the top-down **Plan** view, where you can
-place things precisely — drag to move, drag the handle to turn to any angle,
+place things precisely — drag to move, hold Shift to raise and lower instead,
+drag the handle to turn to any angle,
 snap flush against walls and against each other, box-select several at once,
 line them up. Check your work in the **Model** view, because headroom is the
 whole point and you cannot see it from above.
@@ -36,9 +37,22 @@ is to reach and how much space is above it.
 category, code, notes and a photo. The register searches, sorts, totals and
 exports to CSV.
 
+**Labels you can switch off.** Give an item any labels you like — `fragile`,
+`winter`, whatever you use — and they show on its tag in both views. One switch
+on the bottom bar takes them all off and back; individual labels sit under the
+Show menu. Switching one off stops it being drawn, without moving or hiding
+anything in the room.
+
 **It tells you what will not work.** Anything that does not fit under the
 ceiling, will not go through the door, stands in the door's swing, sticks
-through a wall, or is too tall for the shelf above it.
+through a wall, or is too tall for the shelf above it. Anything it marks red
+will tell you which of those it is if you hover it in the list.
+
+**And what is left, and what would go in it.** How much floor is clear and how
+much you can actually store in it, allowing for the ceiling; the biggest empty
+rectangles with the headroom over each; and, for every one of them, what would
+fit — from the built-in items, from your own saved ones, and from another of
+whatever is already in the room. One click puts it there.
 
 **And whether you can get round.** The floor is rasterised, every free spot
 measured for clearance, and a person flooded in from the doorway and widened
@@ -83,10 +97,11 @@ with `#selftest` on the end of the address:
 room-planner_v4.html#selftest
 ```
 
-55 assertions covering which side of a wall is "inside", point-in-polygon on
+105 assertions covering which side of a wall is "inside", point-in-polygon on
 L-shaped rooms, overlap between turned rectangles, ceiling heights, shelf
-boards and what rides on them, floor access, link validation and CSV escaping.
-All of them should pass.
+boards and what rides on them, what a bay is solid at and where you can click
+it, labels, floor access, the space-left figures, link validation and CSV
+escaping. All of them should pass.
 
 ## Known limits
 

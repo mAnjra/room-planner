@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Room Planner</title>
+<title>Baby Dragon Poo</title>
 <style>
   /* ------------------------------------------------------------------
      A drawing office at night. The viewport is the model; the panels are
@@ -280,6 +280,10 @@
   }
   .tag-pin.sel .n { background: var(--tape); color: var(--ink); border-right-color: var(--tape); }
   .tag-pin .t { padding: 4px 7px; color: var(--chalk); }
+  .tag-pin .l {
+    font-family: var(--cond); font-size: 9px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--tape); padding: 4px 7px 4px 0;
+  }
   .tag-pin .s {
     font-family: var(--num); font-size: 10px; color: var(--graphite);
     padding: 4px 7px 4px 0; font-variant-numeric: tabular-nums;
@@ -343,6 +347,13 @@
   #bar > * { flex: 0 0 auto; }
   #bar .grp { display: flex; align-items: center; gap: 4px; }
   #bar button { padding: 6px 8px; }
+  #labGrp .chip { font-size: 11px; padding: 5px 8px; }
+  #labGrp .chip.on { background: var(--tape); border-color: var(--tape);
+                     color: var(--ink); font-weight: 600; }
+  #labFilter { display: flex; flex-direction: column; gap: 8px;
+               max-height: 190px; overflow-y: auto; }
+  #labFilter .sep { height: 1px; background: var(--rule); margin: 1px 0; }
+  #labFilter label.off { color: var(--graphite); opacity: .55; }
   .key i { width: 18px; }
   .menu { position: relative; }
   .menu > summary {
@@ -422,8 +433,8 @@
 
 <aside id="side">
   <div class="brand">
-    <h1>Room Planner</h1>
-    <span class="ver" id="appVer">0.0.5</span>
+    <h1>Baby Dragon Poo</h1>
+    <span class="ver" id="appVer">0.0.6</span>
   </div>
 
   <details class="sect" open>
@@ -615,7 +626,7 @@
     <summary>In this room<span class="cnt" id="cntObj"></span></summary>
     <div class="body">
       <div class="field">
-        <input type="search" id="regFind" placeholder="Search name, category, code or notes">
+        <input type="search" id="regFind" placeholder="Search name, label, category, code or notes">
       </div>
       <div class="field">
         <select id="regSort">
@@ -631,6 +642,19 @@
       <p id="regTotals" class="empty"></p>
       <div class="btnrow" style="margin-top:7px"><button id="csvBtn">Export a list (CSV)</button></div>
       <p id="fitMsg" class="ok">Nothing placed yet.</p>
+    </div>
+  </details>
+
+  <div class="dimrule"></div>
+
+  <details class="sect" id="spaceSect">
+    <summary>Space left<span class="cnt" id="cntSpace"></span></summary>
+    <div class="body">
+      <p class="hint" id="spSum">&mdash;</p>
+      <div id="spGaps"></div>
+      <p class="hint" style="margin-top:9px">Gaps are square to the room, so against
+        an angled wall you get the biggest square block that fits inside it. Tick
+        <b>Biggest gaps</b> in the Show menu to see them on the plan.</p>
     </div>
   </details>
 
@@ -679,6 +703,7 @@
             </div>
             <div class="field"><label for="mCat">Category</label><input type="text" id="mCat" placeholder="e.g. tools"></div>
             <div class="field"><label for="mSku">Code</label><input type="text" id="mSku" placeholder="model or SKU"></div>
+            <div class="field"><label for="mLabels">Labels</label><input type="text" id="mLabels" placeholder="e.g. fragile, winter"></div>
             <div class="field" style="align-items:flex-start">
               <label for="mNotes">Notes</label>
               <textarea id="mNotes" rows="3"></textarea>
@@ -821,6 +846,8 @@
       <label><input type="checkbox" data-t="grid" checked> Grid</label>
       <label><input type="checkbox" data-t="dims" checked> Sizes</label>
       <label data-only="plan"><input type="checkbox" data-t="access"> Floor you can't get to</label>
+      <label data-only="plan"><input type="checkbox" data-t="gaps"> Biggest gaps</label>
+      <div id="labFilter"></div>
     </div>
   </details>
   <div class="sep"></div>
@@ -832,6 +859,9 @@
       <option value="name" selected>Names</option>
       <option value="full">Names and sizes</option>
     </select>
+  </div>
+  <div class="grp" id="labGrp" style="display:none">
+    <button id="labBtn" class="chip on">Labels</button>
   </div>
   <div class="sep"></div>
   <div class="grp" id="viewGrp">
@@ -866,7 +896,7 @@ if (typeof THREE === 'undefined') {
   return;
 }
 
-const VERSION = '0.0.5';  // shown in the corner and written into saved files
+const VERSION = '0.0.6';  // shown in the corner and written into saved files
 const S = 0.01;          // centimetres to scene units
 const SNAP = 5;          // grid snap in cm
 const FIG = 175;         // reference person height
@@ -1201,10 +1231,27 @@ function throughDoor(o) {
 
 const isShelf = o => o.kind === 'shelf';
 const BOARD = 2;                                  // board thickness in cm
+const POST  = 3;                                  // corner post, square, in cm
 
 function evenLevels(h, n) {
   const out = [];
   for (let i = 1; i <= n; i++) out.push(Math.round(h * i / n));
+  return out;
+}
+
+// The solid parts of an item. A plain item is one block; a bay is four corner
+// posts and its boards, with air in between, which is the whole point of a bay.
+// World coordinates, turned the same way round as corners().
+function solids(o) {
+  if (!isShelf(o)) return [o];
+  const base = o.y || 0, P = POST, rot = o.rot || 0;
+  const c = Math.cos(rot*RAD), s = Math.sin(rot*RAD);
+  const at = (lx, lz, w, d, y, h) => ({
+    x: o.x + lx*c - lz*s, z: o.z + lx*s + lz*c, w, d, rot, y, h });
+  const out = [[-1,-1],[1,-1],[1,1],[-1,1]].map(([sx, sz]) =>
+    at(sx*(o.w/2 - P/2), sz*(o.d/2 - P/2), P, P, base, o.h));
+  (o.levels || []).forEach(lv =>
+    out.push(at(0, 0, o.w, o.d, base + Math.min(lv, o.h) - BOARD, BOARD)));
   return out;
 }
 
@@ -1296,10 +1343,14 @@ function rotateAbout(o, cx, cz, deg) {
 }
 
 const fits = o => (o.y || 0) + o.h <= minCeiling(o) + 0.5;
+// Envelopes first, because that rejects nearly every pair for nothing, then the
+// solid parts, so a box standing in the open air inside a bay is left alone.
 const clashes = o => state.objects.some(p =>
   p.id !== o.id && o.parent !== p.id && p.parent !== o.id &&
   overlap(o, p) &&
-  (o.y||0) < (p.y||0) + p.h - 0.5 && (o.y||0) + o.h > (p.y||0) + 0.5);
+  solids(o).some(a => solids(p).some(b =>
+    overlap(a, b) &&
+    (a.y||0) < (b.y||0) + b.h - 0.5 && (a.y||0) + a.h > (b.y||0) + 0.5)));
 
 const unreachable = o => !!(access && access.missed.some(m => m.id === o.id));
 const okHere = o => fits(o) && inRoom(o) && throughDoor(o) && !blocksDoor(o) &&
@@ -1322,10 +1373,14 @@ const okHere = o => fits(o) && inRoom(o) && throughDoor(o) && !blocksDoor(o) &&
 const CELL = 5;          // cm per grid square
 const DUCK = 150;        // below this much headroom you are not walking through
 const STOOP = 100;       // and below this you are not getting through at all
+const EAVE  = 30;        // storing, not standing: under this even a tray will not go
+const CAP   = 200;       // and over this you are on a ladder, so it is not usable space
 
 let access = null;       // last worked-out answer, refreshed when a change lands
 
-function walkGrid() {
+// minH is how much headroom a cell needs to count. Walking wants STOOP; storing
+// is happy with a great deal less, which is the whole point of an eaves cupboard.
+function walkGrid(minH) {
   // Pad the grid past the room on every side. Without the padding a plain
   // rectangular room has no blocked cells at all, every gap measures as
   // infinitely wide, and the squeeze figure becomes meaningless.
@@ -1339,7 +1394,7 @@ function walkGrid() {
     const x = ox + (i + .5) * CELL, z = oz + (j + .5) * CELL;
     let b = 0;
     if (!insidePoly({ x, z })) b = 1;
-    else if (ceilingAt(x, z) < STOOP) b = 1;
+    else if (ceilingAt(x, z) < (minH || STOOP)) b = 1;
     else if (solid.some(o => inFootprint(o, { x, z }))) b = 1;
     blocked[j * nx + i] = b;
   }
@@ -1467,7 +1522,118 @@ function checkAccess() {
     squeeze: Math.round(widest * 2),
     want: Math.round(want * 2)
   };
+  access.space = spaceReport();     // reads access.seen, so it has to come last
   return access;
+}
+
+/* ========================================================= space left
+
+   The rest of this file answers "will this fit". This answers the other
+   question you actually ask standing in a half-empty room: what is left, and
+   what would go in it. Same rasterised floor, one bar lower, because a 60cm
+   eaves void is no good to stand in and perfectly good for boxes.
+------------------------------------------------------------------------- */
+
+const RECTS   = 4;       // how many gaps to name; past four they are slivers
+const MINCELL = 6;       // 30cm: narrower than this is a crack, not a gap
+
+// the largest empty axis-aligned block of cells, as a histogram problem
+function bigRect(b, nx, nz) {
+  const h = new Int32Array(nx);
+  let best = null;
+  for (let j = 0; j < nz; j++) {
+    for (let i = 0; i < nx; i++) h[i] = b[j*nx + i] ? 0 : h[i] + 1;
+    const st = [];
+    for (let i = 0; i <= nx; i++) {
+      const cur = i < nx ? h[i] : 0;
+      while (st.length && h[st[st.length-1]] >= cur) {
+        const t = h[st.pop()];
+        const l = st.length ? st[st.length-1] + 1 : 0, w = i - l;
+        if (t >= MINCELL && w >= MINCELL && (!best || w*t > best.ci*best.cj))
+          best = { i0: l, j0: j - t + 1, ci: w, cj: t };
+      }
+      st.push(i);
+    }
+  }
+  return best;
+}
+
+// What would go in this gap: the catalogue, your own saved items, and another
+// of anything already standing in the room.
+function whatFits(r) {
+  const stock = allPresets();
+  const known = new Set(stock.map(p => p.n + p.w + p.d + p.h));
+  const mine = new Map();
+  state.objects.filter(o => o.parent == null).forEach(o => {
+    const key = o.name + o.w + o.d + o.h;
+    if (known.has(key)) return;                // already in the list above
+    mine.set(key, { g: 'Another of yours', n: o.name, w: o.w, d: o.d, h: o.h,
+                    c: o.c, kind: o.kind, lv: (o.levels || []).length });
+  });
+
+  const out = [];
+  stock.concat([...mine.values()]).forEach(p => {
+    if (p.parts) return;                       // a set is not one footprint
+    for (const rot of [0, 90]) {
+      if ((rot ? p.d : p.w) > r.w || (rot ? p.w : p.d) > r.d) continue;
+      const t = { id: -1, name: p.n, w: p.w, d: p.d, h: p.h, x: r.x, z: r.z, y: 0, rot };
+      // okHere already means: clears the ceiling, inside the walls, through the
+      // door, clear of its swing, not inside anything. Only reach is missing,
+      // because unreachable() looks a trial item up by id and never finds it.
+      if (!okHere(t)) continue;
+      // ponytail: reach is deliberately not asked here. access.seen is the
+      // flood for walking through at your full chosen width, which is a much
+      // stricter thing than being able to put a box somewhere and covers only a
+      // small part of a real floor. Gating on it suggests nothing anywhere.
+      // Place one and checkAccess runs, and the problems list says so.
+      out.push({ p, rot });
+      return;                                  // one orientation is enough
+    }
+  });
+  return out.sort((a, b) => b.p.w*b.p.d*b.p.h - a.p.w*a.p.d*a.p.h);
+}
+
+function spaceReport() {
+  const g = walkGrid(EAVE), { nx, nz, ox, oz } = g, cell = CELL * CELL;
+
+  // The floor a door sweeps is not somewhere you can put anything, so it is not
+  // space and it is not a gap. swingPoints samples the arc rather than solving
+  // it, so each sample stamps its own cell and its neighbours; erring wide here
+  // only ever costs you floor you could not have used.
+  state.openings.forEach(op => swingPoints(op).forEach(pt => {
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+      const k = cellAt(g, pt.x + di*CELL, pt.z + dj*CELL);
+      if (k >= 0) g.blocked[k] = 1;
+    }
+  }));
+
+  let area = 0, vol = 0;
+  for (let k = 0; k < g.blocked.length; k++) {
+    if (g.blocked[k]) continue;
+    const i = k % nx, j = (k - i) / nx;
+    area += cell;
+    vol  += cell * Math.min(CAP, ceilingAt(ox + (i+.5)*CELL, oz + (j+.5)*CELL));
+  }
+
+  // biggest gap first, then blank it out and look again
+  const b = g.blocked.slice(), gaps = [];
+  for (let n = 0; n < RECTS; n++) {
+    const r = bigRect(b, nx, nz);
+    if (!r) break;
+    for (let j = r.j0; j < r.j0 + r.cj; j++)
+      for (let i = r.i0; i < r.i0 + r.ci; i++) b[j*nx + i] = 1;
+    // clamp to the room: a cell counts if its centre is inside, so the block
+    // can otherwise hang half a cell past the wall and read 205 in a 203 room
+    const x0 = Math.max(BB.x0, ox + r.i0*CELL), x1 = Math.min(BB.x1, ox + (r.i0 + r.ci)*CELL);
+    const z0 = Math.max(BB.z0, oz + r.j0*CELL), z1 = Math.min(BB.z1, oz + (r.j0 + r.cj)*CELL);
+    const w = x1 - x0, d = z1 - z0, x = (x0 + x1)/2, z = (z0 + z1)/2;
+    // head is the worst point in the gap; mid is what a thing put at the middle
+    // of it actually gets, and the middle is where the button puts one
+    gaps.push({ x, z, w, d, head: minCeiling({ x, z, w, d, rot: 0 }),
+                mid: ceilingAt(x, z) });
+  }
+  gaps.forEach(r => r.fits = whatFits(r));
+  return { area, vol, gaps, free: area / polyArea() };
 }
 
 /* ========================================================== three setup */
@@ -1765,34 +1931,21 @@ function buildObjects() {
     const base = o.y || 0;
 
     if (isShelf(o)) {
-      // Boards and corner posts. Picking still needs one solid body, so an
-      // invisible box carries the id and the visible parts are skipped.
-      const post = 3;
-      const hit = new THREE.Mesh(new THREE.BoxGeometry(o.w*S, o.h*S, o.d*S),
-        new THREE.MeshBasicMaterial({ visible: false }));
-      hit.position.set(o.x*S, (base + o.h/2)*S, o.z*S);
-      hit.rotation.y = -(o.rot||0) * RAD;
-      hit.userData.id = o.id;
-      gObjs.add(hit);
-
-      const part = (w, h, d, lx, ly, lz) => {
-        const m = new THREE.Mesh(new THREE.BoxGeometry(w*S, h*S, d*S), mat);
-        const a = -(o.rot||0) * RAD;
-        m.position.set(o.x*S + (lx*Math.cos(a) - lz*Math.sin(a))*S,
-                       (base + ly)*S,
-                       o.z*S + (lx*Math.sin(a) + lz*Math.cos(a))*S);
-        m.rotation.y = a;
-        m.userData.skip = true;
+      // Posts and boards, drawn from the very list the collision maths uses, so
+      // the picture and the physics cannot drift apart. Each part carries the
+      // id itself: a single invisible body over the whole bay would be nearer
+      // the camera than anything standing inside it and swallow every click.
+      solids(o).forEach(q => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(q.w*S, q.h*S, q.d*S), mat);
+        m.position.set(q.x*S, (q.y + q.h/2)*S, q.z*S);
+        m.rotation.y = -(q.rot||0) * RAD;
+        m.userData.id = o.id;
         gObjs.add(m);
         const e = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry),
           new THREE.LineBasicMaterial({ color: bad ? 0xE4574D : 0x0F151B, transparent: true, opacity: .45 }));
         e.position.copy(m.position); e.rotation.copy(m.rotation); e.userData.skip = true;
         gObjs.add(e);
-      };
-      [[-1,-1],[1,-1],[1,1],[-1,1]].forEach(([sx, sz]) =>
-        part(post, o.h, post, sx*(o.w/2 - post/2), o.h/2, sz*(o.d/2 - post/2)));
-      (o.levels || []).forEach(lv =>
-        part(o.w, BOARD, o.d, 0, Math.min(lv, o.h) - BOARD/2, 0));
+      });
     } else {
       const geo = new THREE.BoxGeometry(o.w*S, o.h*S, o.d*S);
       const mesh = new THREE.Mesh(geo, mat);
@@ -1944,6 +2097,8 @@ const VIEWS = {
 const ray = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
 let mode = null, lastX = 0, lastY = 0, grabOff = { x:0, z:0 }, dragCorner = -1;
+let grabLead = null;                 // what the click actually landed on
+let liftFrom = null;                 // where a shift-drag started lifting from
 let lastGood = null;
 
 function toNdc(e) {
@@ -1998,6 +2153,7 @@ cv.addEventListener('pointerdown', e => {
     const fp = floorPoint(e);
     grabOff = fp ? { x: fp.x - o.x, z: fp.z - o.z } : { x:0, z:0 };
     lastGood = { x: o.x, z: o.z };
+    grabLead = o;
     mode = 'move';
     cv.classList.add('placing');
     buildObjects(); renderUI();
@@ -2018,11 +2174,21 @@ cv.addEventListener('pointermove', e => {
     phi   -= (e.clientY - lastY) * 0.006;
     lastX = e.clientX; lastY = e.clientY;
     applyCam();
-  } else if (mode === 'move' && selected != null) {
+  } else if (mode === 'move' && grabLead) {
+    const o = grabLead;
+    if (e.shiftKey) {
+      // hold shift and the drag goes up and down instead of across the floor
+      if (!liftFrom) liftFrom = { py: e.clientY, y: o.y || 0 };
+      moveSelY(Math.max(0, liftFrom.y + (liftFrom.py - e.clientY)) - (o.y || 0));
+      buildObjects(); renderUI();
+      return;
+    }
     const fp = floorPoint(e);
     if (!fp) return;
-    const o = state.objects.find(o => o.id === selected);
-    if (!o) return;
+    // Letting go of shift leaves the pointer well away from the spot on the
+    // floor it started on, so take the grab afresh rather than have the item
+    // leap across the room to catch up.
+    if (liftFrom) { grabOff = { x: fp.x - o.x, z: fp.z - o.z }; liftFrom = null; }
     const nx = Math.round((fp.x - grabOff.x) / SNAP) * SNAP;
     const nz = Math.round((fp.z - grabOff.z) / SNAP) * SNAP;
     // a polygon has no simple clamp, so refuse a move that leaves the room
@@ -2041,7 +2207,7 @@ cv.addEventListener('pointermove', e => {
 
 function endDrag(e) {
   if (mode) commit();
-  mode = null; dragCorner = -1;
+  mode = null; dragCorner = -1; grabLead = null; liftFrom = null;
   cv.classList.remove('dragging', 'placing');
   try { cv.releasePointerCapture(e.pointerId); } catch (err) {}
 }
@@ -2546,8 +2712,8 @@ function findSpot(o) {
   return { x: (BB.x0+BB.x1)/2, z: (BB.z0+BB.z1)/2 };
 }
 
-function addObject() {
-  const p = allPresets()[+$('preset').value];
+function addObject(p, at) {
+  p = p || allPresets()[+$('preset').value];
   if (!p) return;
 
   if (p.parts) {
@@ -2572,8 +2738,8 @@ function addObject() {
   const o = { id: state.nextId++, name: p.n, w: p.w, d: p.d, h: p.h, c: p.c,
               x: 0, y: 0, z: 0, rot: 0 };
   if (p.kind === 'shelf') { o.kind = 'shelf'; o.levels = evenLevels(p.h, p.lv || 4); }
-  const spot = findSpot(o);
-  o.x = spot.x; o.z = spot.z;
+  const spot = at || findSpot(o);
+  o.x = spot.x; o.z = spot.z; o.rot = spot.rot || 0;
   state.objects.push(o);
   selOnly(o.id);
   redraw(); commit();
@@ -2702,19 +2868,38 @@ function addOpening(type) {
   toast(op.name + ' added to ' + wallLabel(op.wall).split(' \u00b7 ')[1] + '.');
 }
 
+// Exactly the six things okHere() weighs, put into words. Being drawn red and
+// getting a line in the list below both come from here, so the two can never
+// disagree about why something is wrong.
+function whyBad(o) {
+  const out = [];
+  if (!fits(o)) out.push({ why:'ceiling', text: o.name + ' reaches ' +
+    Math.round((o.y||0) + o.h) + 'cm but only ' + Math.round(minCeiling(o)) +
+    'cm clears where it stands.' });
+  if (!inRoom(o)) out.push({ why:'wall', text: o.name + ' sticks out through a wall.' });
+  if (clashes(o)) out.push({ why:'inside', text: o.name + ' is inside another item.' });
+  if (!throughDoor(o)) {
+    const d = [o.w, o.d, o.h].sort((a,b)=>a-b);
+    out.push({ why:'door', text: o.name +
+      ' will not go through any door. Turned any way up its smallest face is ' +
+      d[0] + '×' + d[1] + 'cm, and no opening is that big.' });
+  }
+  if (blocksDoor(o)) out.push({ why:'swing', text: o.name +
+    ' stands in the arc of a door and would stop it opening.' });
+  if (unreachable(o)) out.push({ why:'reach', text: o.name +
+    ' cannot be reached: no route to it is ' + access.want + 'cm wide.' });
+  return out;
+}
+
+// the same reasons as one line, for the tooltip on a red row
+const whyBadText = o => whyBad(o).map(r => r.text).join(' ');
+
 function problemList() {
   const out = [];
+  // when nothing can get in at all, say that once rather than against every item
+  const noWayIn = !!access && !!state.objects.length && !access.seen.some(v => v);
   state.objects.forEach(o => {
-    if (!fits(o)) out.push(o.name + ' reaches ' + Math.round((o.y||0) + o.h) +
-      'cm but only ' + Math.round(minCeiling(o)) + 'cm clears where it stands.');
-    if (!inRoom(o)) out.push(o.name + ' sticks out through a wall.');
-    if (clashes(o)) out.push(o.name + ' is inside another item.');
-    if (!throughDoor(o)) {
-      const d = [o.w, o.d, o.h].sort((a,b)=>a-b);
-      out.push(o.name + ' will not go through any door. Turned any way up its smallest face is ' +
-        d[0] + '×' + d[1] + 'cm, and no opening is that big.');
-    }
-    if (blocksDoor(o)) out.push(o.name + ' stands in the arc of a door and would stop it opening.');
+    whyBad(o).forEach(r => { if (!(noWayIn && r.why === 'reach')) out.push(r.text); });
     if (o.parent != null) {
       const p = state.objects.find(q => q.id === o.parent);
       if (p) {
@@ -2725,17 +2910,8 @@ function problemList() {
       }
     }
   });
-  if (access) {
-    if (!access.seen.some(v => v) && state.objects.length) {
-      out.push('There is no way in: nothing ' + access.want + 'cm wide can get through the door and into the room.');
-    } else {
-      const tally = {};
-      access.missed.forEach(m => { tally[m.name] = (tally[m.name] || 0) + 1; });
-      const named = Object.keys(tally).map(n => tally[n] > 1 ? n + ' (\u00d7' + tally[n] + ')' : n);
-      if (named.length) out.push('You cannot get to ' + named.join(', ') +
-               ' \u2014 no route there is ' + access.want + 'cm wide.');
-    }
-  }
+  if (noWayIn) out.push('There is no way in: nothing ' + access.want +
+    'cm wide can get through the door and into the room.');
   state.fixtures.forEach(f => {
     const hit = blockedFixture(f);
     if (hit.length) out.push(
@@ -2763,6 +2939,7 @@ function renderUI() {
     const m = o.meta || {};
     const el = document.createElement('div');
     el.className = 'row' + (sel.has(o.id) ? ' sel' : '') + (bad ? ' bad' : '');
+    if (bad) el.title = whyBadText(o);
     el.innerHTML = '<span class="tag"></span>' +
       (m.photo ? '<img class="thumb" alt="">'
                : '<span class="sw" style="background:' + hex(bad ? 0xE4574D : o.c) + '"></span>') +
@@ -2842,6 +3019,8 @@ function renderUI() {
     }
     return v;
   })();
+  renderLabelChips();
+  renderSpace();
   $('cntObj').textContent  = state.objects.length || '';
   $('cntOpen').textContent = state.openings.length || '';
   $('cntRoom').textContent = Math.round(BB.w) + '×' + Math.round(BB.d);
@@ -3057,7 +3236,11 @@ $('pStack').onclick = () => {
    only gives this page a few megabytes to store everything in.
 ------------------------------------------------------------------------ */
 
-const META_FIELDS = { mUrl:'url', mQty:'qty', mPrice:'price', mCat:'cat', mSku:'sku', mNotes:'notes' };
+const META_FIELDS = { mUrl:'url', mQty:'qty', mPrice:'price', mCat:'cat', mSku:'sku',
+                      mNotes:'notes', mLabels:'labels' };
+// labels are typed as one comma-separated line and read back as a list
+const labelsOf = o => (((o.meta || {}).labels) || '').split(',')
+  .map(t => t.trim()).filter(Boolean);
 const metaOf = o => (o.meta = o.meta || {});
 
 function renderMeta(o) {
@@ -3067,6 +3250,7 @@ function renderMeta(o) {
   $('mPrice').value = m.price ?? '';
   $('mCat').value   = m.cat   || '';
   $('mSku').value   = m.sku   || '';
+  $('mLabels').value = m.labels || '';
   $('mNotes').value = m.notes || '';
   const has = !!m.photo;
   $('photoHas').style.display  = has ? '' : 'none';
@@ -3180,7 +3364,7 @@ let regFind = '', regSort = 'num', regProblems = false;
 function matches(o) {
   if (!regFind) return true;
   const m = o.meta || {};
-  return [o.name, m.cat, m.sku, m.notes, m.url]
+  return [o.name, m.cat, m.sku, m.notes, m.url, m.labels]
     .filter(Boolean).join(' ').toLowerCase().includes(regFind);
 }
 
@@ -3233,12 +3417,12 @@ const csvCell = v => {
 };
 
 function exportCsv() {
-  const head = ['No','Name','Category','Code','Qty','Price','W cm','D cm','H cm',
+  const head = ['No','Name','Category','Labels','Code','Qty','Price','W cm','D cm','H cm',
                 'Across cm','Back cm','Off floor cm','Turned deg','Sits on','Fits','Link','Notes'];
   const rows = state.objects.map((o, i) => {
     const m = o.meta || {};
     const p = o.parent != null ? state.objects.find(q => q.id === o.parent) : null;
-    return [ i+1, o.name, m.cat || '', m.sku || '', m.qty ?? 1, m.price ?? '',
+    return [ i+1, o.name, m.cat || '', labelsOf(o).join('; '), m.sku || '', m.qty ?? 1, m.price ?? '',
              o.w, o.d, o.h, Math.round(o.x), Math.round(o.z), Math.round(o.y||0), Math.round(o.rot||0),
              p ? p.name + ' shelf ' + (o.level + 1) : 'the floor',
              okHere(o) ? 'yes' : 'no', safeUrl(m.url) || m.url || '', m.notes || '' ];
@@ -3532,7 +3716,7 @@ $('oDel').onclick = () => {
   $(id).addEventListener('change', commit);
 });
 
-$('addBtn').onclick = addObject;
+$('addBtn').onclick = () => addObject();
 $('delBtn').onclick = removeSel;
 $('rotBtn').onclick = rotateSel;
 $('dupBtn').onclick = dupSel;
@@ -3625,6 +3809,7 @@ document.querySelectorAll('[data-t]').forEach(b => b.onchange = () => {
   if (t === 'grid') gGrid.visible = on;
   if (t === 'dims') showDims = on;
   if (t === 'access') { showAccess = on; if (on && !access) checkAccess(); }
+  if (t === 'gaps')   { showGaps = on;   if (on && !access) checkAccess(); }
   if (t === 'corners') { showCorners = on; buildCorners(); }
   $('hkey').style.display = gZones.visible ? '' : 'none';
   draw2();
@@ -3679,8 +3864,11 @@ let view2 = { s: 1, ox: 0, oy: 0 };
 let planTouched = false;
 let ovlDirty = true;
 let labelMode = 'name';
+let labelsShown = true;         // the master switch on the bottom bar
+let labelsOff = new Set();      // and the individual ones in the Show menu
 let showDims = true;
 let showAccess = false;
+let showGaps = false;
 const tagEls = new Map();
 
 /* ------------------------------------------------------------ selection */
@@ -3697,6 +3885,24 @@ function selOne() { return sel.size === 1 ? state.objects.find(o => o.id === sel
 
 // One place that moves things, shared by both views and the arrow keys, so
 // the rule that nothing may leave the room is enforced once.
+// Raising something is the one move that has to let go of a shelf board: a
+// seated item takes its height from its board, so reseat would drop it straight
+// back down. Anything riding a bay is left alone and comes up with the bay.
+function moveSelY(dy) {
+  const list = selObjects();
+  if (!list.length || !dy) return false;
+  const ids = new Set(list.map(o => o.id));
+  let moved = false;
+  list.forEach(o => {
+    if (o.parent != null && ids.has(o.parent)) return;
+    if (o.parent != null) seat(o, null);
+    const was = o.y || 0;
+    o.y = Math.max(0, Math.round((was + dy) / SNAP) * SNAP);
+    if (o.y !== was) moved = true;
+  });
+  return moved;
+}
+
 function moveSel(dx, dz) {
   const list = withRiders(selObjects());
   if (!list.length || (!dx && !dz)) return false;
@@ -3712,6 +3918,7 @@ function redraw() { reseat(); buildObjects(); renderUI(); draw2(); }
 // The narrowest point on your way round, shown in the title block where the
 // rest of the drawing's headline figures live.
 function renderAccess() {
+  renderSpace();          // whatever the verdict below, the space figures moved
   const el = $('tbSqueeze');
   if (!el) return;
   if (!access || !state.objects.length) { el.textContent = '\u2014'; el.style.color = ''; return; }
@@ -3729,6 +3936,58 @@ function renderAccess() {
   el.title = 'You can get to everything. The tightest gap on your way round is ' +
              access.squeeze + 'cm, and you asked for ' + access.want + 'cm.';
   draw2();
+}
+
+// Nothing is worked out here, it only reads what checkAccess already left
+// behind, so this stays as cheap as the rest of renderUI.
+function renderSpace() {
+  const s = access && access.space, box = $('spGaps');
+  box.innerHTML = '';
+  if (!s) { $('spSum').textContent = '\u2014'; $('cntSpace').textContent = ''; return; }
+
+  $('cntSpace').textContent = (s.area / 10000).toFixed(1) + ' m2';
+  $('spSum').textContent =
+    (s.area / 10000).toFixed(2) + ' m2 of floor is clear, ' + Math.round(s.free * 100) +
+    '% of the room, holding ' + Math.round(s.vol / 1000).toLocaleString() +
+    ' L up to ' + CAP + 'cm. Floor with less than ' + EAVE +
+    'cm over it, and floor a door sweeps, are not counted.';
+
+  if (!s.gaps.length) {
+    box.innerHTML = '<p class="empty">No gap left worth the name.</p>';
+    return;
+  }
+
+  s.gaps.forEach((r, n) => {
+    const head = document.createElement('div');
+    head.className = 'row';
+    head.innerHTML = '<span class="tag">' + String(n + 1).padStart(2, '0') +
+      '</span><span class="nm">Gap ' + Math.round(r.w) + '\u00d7' + Math.round(r.d) +
+      'cm</span><span class="dm">' + (Math.round(r.mid) > Math.round(r.head)
+        ? Math.round(r.head) + '\u2013' + Math.round(r.mid)
+        : Math.round(r.head)) + 'cm over</span>';
+    box.appendChild(head);
+
+    if (!r.fits.length) {
+      const e = document.createElement('p');
+      e.className = 'empty';
+      e.textContent = 'Nothing in your lists goes in here.';
+      box.appendChild(e);
+      return;
+    }
+    r.fits.slice(0, 5).forEach(f => {
+      const el = document.createElement('div');
+      el.className = 'row';
+      el.innerHTML = '<span class="sw" style="background:' + hex(f.p.c) +
+        '"></span><span class="nm"></span><span class="dm">' +
+        f.p.w + '\u00d7' + f.p.d + '\u00d7' + f.p.h + (f.rot ? ' turned' : '') + '</span>';
+      el.querySelector('.nm').textContent = f.p.n;
+      const b = document.createElement('button');
+      b.className = 'x'; b.textContent = '+'; b.title = 'Put one here';
+      b.onclick = () => addObject(f.p, { x: r.x, z: r.z, rot: f.rot });
+      el.appendChild(b);
+      box.appendChild(el);
+    });
+  });
 }
 
 /* -------------------------------------------------- one projection, two views */
@@ -3871,11 +4130,57 @@ function gapsToWalls(o) {
 
 /* ------------------------------------------------------- tags and labels */
 
+// One chip per label anyone has used, so a label can be taken off the drawing
+// without touching what is in the room. Nothing here moves or hides an item.
+// One switch on the bar for the lot, because a roomful of labels would fill the
+// bar and push everything else off it. The individual ones live in the Show
+// menu, which already stacks and scrolls.
+function renderLabelChips() {
+  const all = [...new Set(state.objects.flatMap(labelsOf))].sort();
+  // a label nobody uses any more must not stay switched off out of sight
+  labelsOff.forEach(t => { if (!all.includes(t)) labelsOff.delete(t); });
+
+  const grp = $('labGrp'), btn = $('labBtn'), box = $('labFilter');
+  grp.style.display = all.length ? '' : 'none';
+  const hid = all.filter(t => labelsOff.has(t)).length;
+  btn.className = 'chip' + (labelsShown ? ' on' : '');
+  btn.textContent = 'Labels' + (labelsShown && hid ? ' ' + (all.length - hid) + '/' + all.length : '');
+  btn.title = labelsShown
+    ? 'Take every label off the drawing. Pick individual ones under Show.'
+    : 'Put the labels back on the drawing.';
+
+  const want = all.map(t => t + (labelsOff.has(t) ? '-' : '+')).join('|') + (labelsShown ? '' : '!');
+  if (box.dataset.shape === want) return;
+  box.dataset.shape = want;
+  box.innerHTML = '';
+  if (!all.length) return;
+  box.appendChild(Object.assign(document.createElement('div'), { className: 'sep' }));
+  all.forEach(t => {
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = !labelsOff.has(t);
+    cb.disabled = !labelsShown;
+    cb.onchange = () => {
+      if (cb.checked) labelsOff.delete(t); else labelsOff.add(t);
+      renderLabelChips(); ovlDirty = true;
+    };
+    const lb = document.createElement('label');
+    if (!labelsShown) lb.className = 'off';
+    lb.appendChild(cb);
+    lb.appendChild(document.createTextNode(' ' + t));
+    box.appendChild(lb);
+  });
+}
+
+$('labBtn').onclick = () => { labelsShown = !labelsShown; renderLabelChips(); ovlDirty = true; };
+
 function tagText(o, i) {
-  if (labelMode === 'num')  return { n: true, t: '',     s: '' };
-  if (labelMode === 'name') return { n: true, t: o.name, s: '' };
+  const l = labelsShown ? labelsOf(o).filter(t => !labelsOff.has(t)).join(' · ') : '';
+  if (labelMode === 'num')  return { n: true, t: '',     s: '', l };
+  if (labelMode === 'name') return { n: true, t: o.name, s: '', l };
   const q = (o.meta || {}).qty;
-  return { n: true, t: o.name + (q > 1 ? ' ×' + q : ''), s: o.w + '×' + o.d + '×' + o.h };
+  return { n: true, t: o.name + (q > 1 ? ' ×' + q : ''),
+           s: o.w + '×' + o.d + '×' + o.h, l };
 }
 
 function updateOverlay() {
@@ -3929,10 +4234,14 @@ function updateOverlay() {
       el.className = 'tag-pin' + (sel.has(o.id) ? ' sel' : '') + (bad ? ' bad' : '');
       const want = '<span class="n">' + String(i+1).padStart(2,'0') + '</span>' +
         (parts.t ? '<span class="t"></span>' : '') +
-        (parts.s ? '<span class="s">' + parts.s + '</span>' : '');
+        (parts.s ? '<span class="s">' + parts.s + '</span>' : '') +
+        (parts.l ? '<span class="l"></span>' : '');
       if (el.dataset.shape !== want) { el.innerHTML = want; el.dataset.shape = want; }
+      // both of these are typed by hand, so they go in as text, never as markup
       const tn = el.querySelector('.t');
       if (tn && tn.textContent !== parts.t) tn.textContent = parts.t;
+      const ln = el.querySelector('.l');
+      if (ln && ln.textContent !== parts.l) ln.textContent = parts.l;
 
       el.style.left = anchor.X + 'px';
       el.style.top  = ty + 'px';
@@ -4081,6 +4390,23 @@ function draw2() {
     }
   }
   g.restore();
+
+  // the biggest gaps, dashed so they never read as something solid
+  if (showGaps && access && access.space) {
+    g.save();
+    g.setLineDash([6, 5]); g.lineWidth = 1.5;
+    g.strokeStyle = C('--tape'); g.fillStyle = C('--tape');
+    g.font = '10px ' + C('--num'); g.textAlign = 'center';
+    access.space.gaps.forEach(r => {
+      const a = toScreen(r.x - r.w/2, 0, r.z - r.d/2);
+      const b = toScreen(r.x + r.w/2, 0, r.z + r.d/2);
+      g.strokeRect(a.X, a.Y, b.X - a.X, b.Y - a.Y);
+      g.fillText(Math.round(r.w) + '\u00d7' + Math.round(r.d) + '  ' +
+                 Math.round(r.head) + '-' + Math.round(r.mid) + ' over',
+                 (a.X + b.X)/2, (a.Y + b.Y)/2);
+    });
+    g.restore();
+  }
 
   // walls, then the openings cut out of them
   g.lineJoin = 'miter';
@@ -4388,6 +4714,13 @@ cv2.addEventListener('pointermove', e => {
     redraw();
   } else if (m2 === 'move') {
     const o = grab2.lead;
+    if (e.shiftKey) {
+      if (!liftFrom) liftFrom = { py: e.clientY, y: o.y || 0 };
+      moveSelY(Math.max(0, liftFrom.y + px2cm(liftFrom.py - e.clientY)) - (o.y || 0));
+      redraw();
+      return;
+    }
+    if (liftFrom) { grab2.dx = r.x - o.x; grab2.dz = r.z - o.z; liftFrom = null; }
     const want = snapPos(o, r.x - grab2.dx, r.z - grab2.dz, px2cm(9));
     moveSel(want.x - o.x, want.z - o.z);
     redraw();
@@ -4410,7 +4743,7 @@ function end2(e) {
     }
   }
   if (m2 && m2 !== 'pan' && m2 !== 'marquee') commit();
-  m2 = null; marquee = null; cv2.className = '';
+  m2 = null; marquee = null; liftFrom = null; cv2.className = '';
   try { cv2.releasePointerCapture(e.pointerId); } catch (err) {}
   draw2();
 }
@@ -4668,9 +5001,11 @@ function setTip() {
     return;
   }
   $('tipText').innerHTML = viewMode === 'plan'
-    ? '<b>Drag</b> to move. <b>Drag the dot</b> to turn it. <b>Drag on empty floor</b> to pick out several. ' +
+    ? '<b>Drag</b> to move, <b>Shift-drag</b> to raise or lower. <b>Drag the dot</b> to turn it. ' +
+      '<b>Drag on empty floor</b> to pick out several. ' +
       '<b>Scroll</b> to zoom, <b>Alt-drag</b> to pan. Arrow keys nudge.'
-    : '<b>Drag</b> to spin the room. <b>Scroll</b> to zoom. Click something to pick it up, then drag it across the floor.';
+    : '<b>Drag</b> to spin the room. <b>Scroll</b> to zoom. Click something to pick it up, then drag it ' +
+      'across the floor, or <b>hold Shift</b> to raise and lower it.';
 }
 
 function setMode(m) {
@@ -4740,7 +5075,7 @@ function resize() {
 window.addEventListener('resize', resize);
 
 $('appVer').textContent = VERSION;
-$('appVer').title = 'Room Planner ' + VERSION;
+$('appVer').title = 'Baby Dragon Poo ' + VERSION;
 
 fillColours($('pCol'));
 fillColours($('mCol'));
@@ -4889,6 +5224,62 @@ function selfTest() {
   ok('the gap above a board is to the next board',  near(levelClear(bay, 2), 34));
   ok('the gap above the top board is to the ceiling', near(levelClear(bay, 4), 70));
   ok('a box on a bay is not counted as clashing with it', !clashes(box));
+
+  // A bay is a frame, not a crate. Standing something in the open air inside one
+  // is the ordinary way to use it, and must not read as being inside the bay.
+  seat(box, null);
+  box.x = 200; box.z = 200; box.y = 0;
+  ok('a box on the floor under the lowest board is not a clash', !clashes(box));
+  box.y = 36;
+  ok('a box set down on a board without being seated is not a clash', !clashes(box));
+  box.y = 20;
+  ok('a box standing high enough to foul a board is a clash', clashes(box));
+  box.y = 0; box.x = 230;
+  ok('a box shoved into a corner post is a clash', clashes(box));
+  box.x = 200; seat(box, bay.id, 2); reseat();
+
+  // raising something by hand has to let go of the board it was sitting on,
+  // or reseat drops it straight back down again
+  selOnly(box.id);
+  ok('a seated box starts at its board height', near(box.y, 108));
+  ok('raising it reports that it moved', moveSelY(20));
+  reseat();
+  // 108 is a board height, not a grid height, so the lift lands on the grid
+  ok('it lets go of the board rather than snapping back',
+     box.parent == null && near(box.y, 130));
+  ok('and it will not go through the floor', moveSelY(-500) && near(box.y, 0));
+
+  // a bay carries its contents up with it, and they keep their seats
+  seat(box, bay.id, 2); reseat();
+  selOnly(bay.id);
+  moveSelY(10); reseat();
+  ok('raising a bay lifts what is riding on it', near(bay.y, 10) && near(box.y, 118));
+  ok('and what is riding on it keeps its board', box.parent === bay.id);
+  bay.y = 0; box.y = 0; seat(box, bay.id, 2); reseat(); selClear();
+
+  // And the same truth has to hold for the mouse: a bay is pickable by its
+  // posts and boards, never by one body spanning the whole thing, or the click
+  // lands on the bay before it ever reaches what is standing inside it.
+  box.y = 0; seat(box, null);
+  buildObjects();
+  scene.updateMatrixWorld(true);
+  const shot = new THREE.Raycaster();
+  const shotFrom = (fx, fy, fz, tx, ty, tz) => {
+    const a = gObjs.localToWorld(new THREE.Vector3(fx*S, fy*S, fz*S));
+    const b = gObjs.localToWorld(new THREE.Vector3(tx*S, ty*S, tz*S));
+    shot.set(a, b.sub(a).normalize());
+    const h = shot.intersectObjects(gObjs.children, false)
+                  .filter(q => !q.object.userData.skip)[0];
+    return h ? h.object.userData.id : null;
+  };
+  // level with the box, below the lowest board: the old full-height pick body
+  // sat in front of the box here and took the click every time
+  ok('a click reaches a box standing inside a bay, not the bay',
+     shotFrom(200, 15, 120, 200, 15, 220) === box.id);
+  // and down onto the top board, which is how you actually click a bay
+  ok('and the bay is still there to be clicked, by its boards',
+     shotFrom(200, 220, 200, 200, 0, 200) === bay.id);
+  seat(box, bay.id, 2); reseat();
 
   const surf = surfacesUnder(box).map(s => Math.round(s.y));
   ok('every board is offered as a surface', surf.join() === '0,36,72,108,144,180');
@@ -5064,6 +5455,93 @@ function selfTest() {
   // 14. csv escaping, so a comma in a name cannot shift every later column
   ok('a comma in a value is quoted',  csvCell('Storage box, large') === '"Storage box, large"');
   ok('a quote in a value is doubled', csvCell('a "b" c') === '"a ""b"" c"');
+
+  // 20. labels: typed as one line, read back as a list, and switched off one
+  // at a time without anything leaving the room
+  state.objects = [
+    { id:801, name:'Crate', w:40, d:40, h:40, c:0, x:0, z:0, y:0, rot:0,
+      meta: { labels: ' fragile , winter ,, ' } },
+    { id:802, name:'Plain', w:40, d:40, h:40, c:0, x:0, z:0, y:0, rot:0 }
+  ];
+  const crate = state.objects[0], plain = state.objects[1];
+  ok('a typed label line reads back as a tidy list',
+     labelsOf(crate).join('|') === 'fragile|winter');
+  ok('an item nobody labelled has none', labelsOf(plain).length === 0);
+
+  regFind = 'winter';
+  ok('the register finds an item by its label', matches(crate) && !matches(plain));
+  regFind = '';
+
+  labelsOff = new Set(['fragile']);
+  ok('a label switched off is left off the tag', tagText(crate, 0).l === 'winter');
+  ok('and switching it off changes nothing else about the item',
+     state.objects.length === 2 && labelsOf(crate).length === 2);
+  labelsOff = new Set();
+  ok('and it comes straight back on', tagText(crate, 0).l === 'fragile · winter');
+
+  labelsShown = false;
+  ok('the one switch on the bar takes every label off at once',
+     tagText(crate, 0).l === '');
+  ok('and it overrules the individual ones rather than losing them',
+     labelsOff.size === 0 && labelsOf(crate).length === 2);
+  labelsShown = true;
+  ok('and puts them all back', tagText(crate, 0).l === 'fragile · winter');
+
+  // 20b. red on the drawing and the list below always agree on why
+  use(rectPoly(300, 300));
+  state.room.ceiling = { mode:'flat', axis:'z', hi:100, lo:100, profile:null };
+  state.objects = [{ id:601, name:'Tall', w:40, d:40, h:150, c:0, x:150, z:150, y:0, rot:0 }];
+  state.openings = []; state.fixtures = [];
+  checkAccess();
+  ok('something too tall for the ceiling is red', !okHere(state.objects[0]));
+  ok('and says so in as many words',
+     whyBad(state.objects[0]).some(r => r.why === 'ceiling'));
+  ok('every red item can say why it is red',
+     state.objects.filter(o => !okHere(o)).every(o => whyBadText(o).length > 0));
+
+  state.objects = [{ id:602, name:'Fine', w:40, d:40, h:50, c:0, x:150, z:150, y:0, rot:0 }];
+  checkAccess();
+  ok('and something that is fine has nothing to say',
+     okHere(state.objects[0]) && whyBad(state.objects[0]).length === 0);
+
+  // 21. space left: what is free, where it is, and what would go in it
+  use(rectPoly(300, 300));
+  state.objects = []; state.openings = []; state.fixtures = [];
+
+  const freeCells = g => g.blocked.reduce((n, v) => n + (v ? 0 : 1), 0);
+  state.room.ceiling = { mode:'slope', axis:'z', hi:220, lo:40, profile:null };
+  ok('storing counts eaves floor that standing does not',
+     freeCells(walkGrid(EAVE)) > freeCells(walkGrid()));
+
+  state.room.ceiling = { mode:'flat', axis:'z', hi:240, lo:240, profile:null };
+  checkAccess();
+  ok('an empty room is all free floor', near(access.space.area / 10000, 9, 0.02));
+  ok('and its volume stops at the height you can reach, not the ceiling',
+     near(access.space.vol / 1000, 9 * CAP * 10, 20));
+
+  state.objects = [{ id:701, name:'Block', w:100, d:100, h:50, c:0,
+                     x:150, z:150, y:0, rot:0 }];
+  checkAccess();
+  const sp = access.space;
+  ok('what you put in comes off the free floor', near(sp.area / 10000, 8, 0.02));
+  ok('the biggest gap is the full strip beside it',
+     sp.gaps.length && near(sp.gaps[0].w, 300, 1) && near(sp.gaps[0].d, 100, 1));
+  ok('a gap never reads wider than the room it is in',
+     sp.gaps.every(r => r.w <= 300.5 && r.d <= 300.5));
+  ok('nothing is offered that would not clear the ceiling where it goes',
+     sp.gaps.every(r => r.fits.every(f => f.p.h <= Math.max(r.head, r.mid) + 0.5)));
+  ok('nothing is offered that would not fit the gap either way round',
+     sp.gaps.every(r => r.fits.every(f =>
+       (f.rot ? f.p.d : f.p.w) <= r.w && (f.rot ? f.p.w : f.p.d) <= r.d)));
+
+  // a door's swing is not floor you can put anything on
+  const openArea = access.space.area;
+  state.openings = [{ id:1, name:'Door', type:'door', wall:0, pos:110, w:80, h:198,
+                      sill:0, hinge:'left', swing:'in' }];
+  checkAccess();
+  ok('the floor a door sweeps is not counted as space',
+     access.space.area < openArea);
+  state.openings = [];
 
   state = JSON.parse(keep);
   normalisePoly(); BB = bboxOf(state.room.poly); WALLS = walls();
