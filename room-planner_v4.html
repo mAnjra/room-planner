@@ -434,7 +434,7 @@
 <aside id="side">
   <div class="brand">
     <h1>Baby Dragon Poo</h1>
-    <span class="ver" id="appVer">0.0.7</span>
+    <span class="ver" id="appVer">0.0.8</span>
   </div>
 
   <details class="sect" open>
@@ -904,7 +904,7 @@ if (typeof THREE === 'undefined') {
   return;
 }
 
-const VERSION = '0.0.7';  // shown in the corner and written into saved files
+const VERSION = '0.0.8';  // shown in the corner and written into saved files
 const S = 0.01;          // centimetres to scene units
 const SNAP = 5;          // grid snap in cm
 const FIG = 175;         // reference person height
@@ -2746,6 +2746,7 @@ function addObject(p, at) {
   const o = { id: state.nextId++, name: p.n, w: p.w, d: p.d, h: p.h, c: p.c,
               x: 0, y: 0, z: 0, rot: 0 };
   if (p.kind === 'shelf') { o.kind = 'shelf'; o.levels = evenLevels(p.h, p.lv || 4); }
+  if (p.meta) o.meta = copyOf(p.meta);   // its own copy, never the library's
   const spot = at || findSpot(o);
   o.x = spot.x; o.z = spot.z; o.rot = spot.rot || 0;
   state.objects.push(o);
@@ -3661,10 +3662,10 @@ $('pSeat').onchange = () => {
 $('mSave').onclick = () => {
   const n = ($('mName').value || '').trim();
   if (!n) { $('mName').focus(); return; }
-  addToLibrary([{
-    n, w: Math.max(1, +$('mW').value || 1), d: Math.max(1, +$('mD').value || 1),
-    h: Math.max(1, +$('mH').value || 1), c: readColour($('mCol'), 0x6E7F8D)
-  }]);
+  addToLibrary([ownEntry(n,
+    Math.max(1, +$('mW').value || 1), Math.max(1, +$('mD').value || 1),
+    Math.max(1, +$('mH').value || 1), readColour($('mCol'), 0x6E7F8D), ownFrom)]);
+  ownFrom = null;
   $('mName').value = '';
   fillPresets();
 };
@@ -3698,11 +3699,32 @@ $('mGroup').onclick = () => {
   toast('Saved "' + n + '" with ' + list.length + ' pieces.');
 };
 
+// The form has boxes for name, size and colour. An item is more than that, so
+// hold on to the rest of it here and let Save put it in the library too.
+let ownFrom = null;
+
+// what goes in the library: the form, plus whatever of the item it has no box
+// for. The meta is copied, so the library entry and the item it came from can
+// never end up editing one another.
+function ownEntry(n, w, d, h, c, from) {
+  const e = { n, w, d, h, c };
+  if (from && from.kind) { e.kind = from.kind; e.lv = from.lv; }
+  if (from && from.meta) e.meta = copyOf(from.meta);
+  return e;
+}
+
 $('mFrom').onclick = () => {
   const o = selOne();
   if (!o) return;
   $('mName').value = o.name; $('mW').value = o.w; $('mD').value = o.d; $('mH').value = o.h;
   setColourSelect($('mCol'), o.c);
+  ownFrom = {
+    meta: o.meta ? copyOf(o.meta) : null,
+    kind: o.kind,
+    // a count rather than the board heights, so the boards still come out even
+    // if you change the height on the way through
+    lv: (o.levels || []).length || undefined
+  };
 };
 
 $('addDoor').onclick = () => addOpening('door');
@@ -5513,6 +5535,22 @@ function selfTest() {
   ok('and boards of its own',          src.levels[0] === 30);
   ok('while still being a faithful copy',
      dup.name === src.name && dup.w === src.w && dup.levels.length === 3);
+
+  // 20c. saving one of your own things keeps what the form has no box for
+  const kept = { id:5, name:'Tub', kind:'shelf', levels:[20,40],
+                 w:40, d:30, h:60, c:0, x:0, z:0, y:0, rot:0,
+                 meta:{ labels:'garage', notes:'lid cracked' } };
+  const grab = { meta: copyOf(kept.meta), kind: kept.kind, lv: kept.levels.length };
+  const entry = ownEntry('Tub', kept.w, kept.d, kept.h, kept.c, grab);
+  ok('a saved item keeps its labels and notes',
+     entry.meta.labels === 'garage' && entry.meta.notes === 'lid cracked');
+  ok('and remembers it was shelving, and how many boards',
+     entry.kind === 'shelf' && entry.lv === 2);
+  entry.meta.labels = 'attic';
+  ok('and editing the library entry leaves the item alone',
+     kept.meta.labels === 'garage');
+  ok('a plain made-up item carries nothing it was never given',
+     ownEntry('Plain', 10, 10, 10, 0, null).meta === undefined);
 
   // 20b. red on the drawing and the list below always agree on why
   use(rectPoly(300, 300));

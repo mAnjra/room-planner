@@ -3,6 +3,23 @@
 Notable changes to this project. Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and [semantic versioning](https://semver.org/) — pre-1.0, so anything may still move.
 
+## [0.0.8] — 2026-09-04
+
+### Fixed
+
+- **Saving one of your own items threw away everything but its size.** *Use
+  selected* filled in the name, size and colour, and Save wrote only those, so
+  the labels, notes, category, code, link, price and photo were lost, and a
+  shelving bay came back as a plain block. A saved item now keeps all of it,
+  remembers it was shelving and how many boards it had, and adding it back to
+  the room brings the lot with it. The boards are stored as a count rather than
+  fixed heights, so they still come out evenly spaced if you change the height
+  on the way through.
+
+  Everything is copied on the way in and on the way out, so a library entry and
+  the items made from it can never end up editing one another — the same fault
+  that 0.0.7 fixed for *Copy*.
+
 ## [0.0.7] — 2026-09-04
 
 ### Fixed
@@ -187,6 +204,7 @@ a fallback. It planned a single rectangular room with a sloped ceiling, and
 checked that items fit under it, went through the door and left the door free to
 swing. v4 keeps that geometry and builds on it.
 
+[0.0.8]: https://github.com/mAnjra/room-planner/releases/tag/v0.0.8
 [0.0.7]: https://github.com/mAnjra/room-planner/releases/tag/v0.0.7
 [0.0.6]: https://github.com/mAnjra/room-planner/releases/tag/v0.0.6
 [0.0.5]: https://github.com/mAnjra/room-planner/releases/tag/v0.0.5
