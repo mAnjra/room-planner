@@ -435,7 +435,7 @@
 <aside id="side">
   <div class="brand">
     <h1>Baby Dragon Poo</h1>
-    <span class="ver" id="appVer">0.0.9</span>
+    <span class="ver" id="appVer">0.1.0</span>
   </div>
 
   <details class="sect" open>
@@ -720,6 +720,24 @@
           </div>
         </details>
 
+        <div class="field"><label for="pKind">Shape</label>
+          <select id="pKind">
+            <option value="">Solid block</option>
+            <option value="legged">Table, bench or desk</option>
+            <option value="shelf">Shelving</option>
+          </select></div>
+
+        <div id="leggedFld" style="display:none">
+          <p class="hint" style="margin-top:11px">A top on four legs, so things
+            tuck underneath it instead of clashing with it.</p>
+          <div class="pair">
+            <div class="field"><label for="pTop">Top</label>
+              <input type="number" id="pTop" min="1" step="1"><span class="unit">cm</span></div>
+            <div class="field"><label for="pLeg">Legs</label>
+              <input type="number" id="pLeg" min="1" step="1"><span class="unit">cm</span></div>
+          </div>
+        </div>
+
         <div id="shelfFld" style="display:none">
           <p class="hint" style="margin-top:11px">Boards, measured up from the bottom of the bay.</p>
           <div class="field">
@@ -897,7 +915,7 @@ if (typeof THREE === 'undefined') {
   return;
 }
 
-const VERSION = '0.0.9';  // shown in the corner and written into saved files
+const VERSION = '0.1.0';  // shown in the corner and written into saved files
 const S = 0.01;          // centimetres to scene units
 const SNAP = 5;          // grid snap in cm
 const FIG = 175;         // reference person height
@@ -1230,9 +1248,12 @@ function throughDoor(o) {
    bay takes its contents with it and nothing can drift out of step.
 ------------------------------------------------------------------------- */
 
-const isShelf = o => o.kind === 'shelf';
+const isShelf  = o => o.kind === 'shelf';
+const isLegged = o => o.kind === 'legged';
 const BOARD = 2;                                  // board thickness in cm
 const POST  = 3;                                  // corner post, square, in cm
+const TOPT  = 4;                                  // a table top, unless you say otherwise
+const LEGT  = 5;                                  // and its legs
 
 function evenLevels(h, n) {
   const out = [];
@@ -1240,20 +1261,42 @@ function evenLevels(h, n) {
   return out;
 }
 
-// The solid parts of an item. A plain item is one block; a bay is four corner
-// posts and its boards, with air in between, which is the whole point of a bay.
-// World coordinates, turned the same way round as corners().
+/* ================================================================= shapes
+
+   What an item is actually made of, as a list of solid blocks in world
+   coordinates. A plain thing is one block. A bay is four posts and its boards.
+   A table is a top on four legs. The air in between is air, which is what lets
+   a bench slide under a table and a box sit under the lowest shelf.
+
+   Everything downstream reads this one list: the collision test, and the parts
+   the model view draws. Add a shape here and both follow.
+------------------------------------------------------------------------- */
+
 function solids(o) {
-  if (!isShelf(o)) return [o];
-  const base = o.y || 0, P = POST, rot = o.rot || 0;
+  const base = o.y || 0, rot = o.rot || 0;
   const c = Math.cos(rot*RAD), s = Math.sin(rot*RAD);
+  // local offsets from the middle, turned the same way round as corners()
   const at = (lx, lz, w, d, y, h) => ({
     x: o.x + lx*c - lz*s, z: o.z + lx*s + lz*c, w, d, rot, y, h });
-  const out = [[-1,-1],[1,-1],[1,1],[-1,1]].map(([sx, sz]) =>
-    at(sx*(o.w/2 - P/2), sz*(o.d/2 - P/2), P, P, base, o.h));
-  (o.levels || []).forEach(lv =>
-    out.push(at(0, 0, o.w, o.d, base + Math.min(lv, o.h) - BOARD, BOARD)));
-  return out;
+  const corners4 = (t, y, h) => [[-1,-1],[1,-1],[1,1],[-1,1]].map(([sx, sz]) =>
+    at(sx*(o.w/2 - t/2), sz*(o.d/2 - t/2), t, t, y, h));
+
+  if (isShelf(o)) {
+    const out = corners4(POST, base, o.h);
+    (o.levels || []).forEach(lv =>
+      out.push(at(0, 0, o.w, o.d, base + Math.min(lv, o.h) - BOARD, BOARD)));
+    return out;
+  }
+
+  if (isLegged(o)) {
+    const t = Math.max(1, Math.min(+o.top > 0 ? +o.top : TOPT, o.h));
+    const g = Math.max(1, Math.min(+o.leg > 0 ? +o.leg : LEGT, Math.min(o.w, o.d) / 2));
+    const out = [at(0, 0, o.w, o.d, base + o.h - t, t)];        // the top
+    if (o.h > t) out.push(...corners4(g, base, o.h - t));       // and its legs
+    return out;
+  }
+
+  return [at(0, 0, o.w, o.d, base, o.h)];
 }
 
 const childrenOf = id => state.objects.filter(o => o.parent === id);
@@ -1941,12 +1984,13 @@ function buildObjects() {
     const mat = new THREE.MeshStandardMaterial({ color: col, roughness: 0.8, metalness: 0 });
     const base = o.y || 0;
 
-    if (isShelf(o)) {
-      // Posts and boards, drawn from the very list the collision maths uses, so
-      // the picture and the physics cannot drift apart. Each part carries the
-      // id itself: a single invisible body over the whole bay would be nearer
-      // the camera than anything standing inside it and swallow every click.
-      solids(o).forEach(q => {
+    const parts = solids(o);
+    if (parts.length > 1) {
+      // Drawn from the very list the collision maths uses, so the picture and
+      // the physics cannot drift apart. Each part carries the id itself: one
+      // invisible body over the whole thing would be nearer the camera than
+      // anything standing inside it and would swallow every click.
+      parts.forEach(q => {
         const m = new THREE.Mesh(new THREE.BoxGeometry(q.w*S, q.h*S, q.d*S), mat);
         m.position.set(q.x*S, (q.y + q.h/2)*S, q.z*S);
         m.rotation.y = -(q.rot||0) * RAD;
@@ -2547,6 +2591,9 @@ function repair(s) {
         c: colourOr(o.c)
       };
       if (!Number.isFinite(+o.c) || o.c === null) fixed++;
+      if (out.kind && out.kind !== 'shelf' && out.kind !== 'legged') {
+        delete out.kind; fixed++;
+      }
       if (out.kind === 'shelf') {
         const lv = Array.isArray(out.levels)
           ? out.levels.filter(v => Number.isFinite(+v) && +v > 0).map(v => Math.min(h, +v))
@@ -2555,6 +2602,12 @@ function repair(s) {
         out.levels = lv && lv.length ? lv : (fixed++, evenLevels(h, 4));
       } else {
         delete out.levels;
+      }
+      if (out.kind === 'legged') {
+        out.top = Math.max(1, Math.min(numOr(out.top, TOPT), h));
+        out.leg = Math.max(1, Math.min(numOr(out.leg, LEGT), Math.min(w, d) / 2));
+      } else {
+        delete out.top; delete out.leg;
       }
       if (out.meta && typeof out.meta !== 'object') { delete out.meta; fixed++; }
       return out;
@@ -2733,6 +2786,7 @@ function addObject(p, at) {
       const o = { id: state.nextId++, name: q.n, w: q.w, d: q.d, h: q.h, c: q.c,
                   x: spot.x + q.dx, z: spot.z + q.dz, y: q.dy || 0, rot: q.rot || 0 };
       if (q.kind === 'shelf') { o.kind = 'shelf'; o.levels = (q.levels || evenLevels(q.h, 4)).slice(); }
+      if (q.kind === 'legged') { o.kind = 'legged'; o.top = q.top || TOPT; o.leg = q.leg || LEGT; }
       if (q.meta) o.meta = JSON.parse(JSON.stringify(q.meta));
       state.objects.push(o);
       return o;
@@ -2748,7 +2802,8 @@ function addObject(p, at) {
 
   const o = { id: state.nextId++, name: p.n, w: p.w, d: p.d, h: p.h, c: p.c,
               x: 0, y: 0, z: 0, rot: 0 };
-  if (p.kind === 'shelf') { o.kind = 'shelf'; o.levels = evenLevels(p.h, p.lv || 4); }
+  if (p.kind === 'shelf')  { o.kind = 'shelf'; o.levels = evenLevels(p.h, p.lv || 4); }
+  if (p.kind === 'legged') { o.kind = 'legged'; o.top = p.top || TOPT; o.leg = p.leg || LEGT; }
   if (p.meta) o.meta = copyOf(p.meta);   // its own copy, never the library's
   const spot = at || findSpot(o);
   o.x = spot.x; o.z = spot.z; o.rot = spot.rot || 0;
@@ -3020,6 +3075,12 @@ function renderUI() {
     setColourSelect($('pCol'), o.c);
     $('metaFld').style.display = '';
     renderMeta(o);
+    $('pKind').value = o.kind || '';
+    $('leggedFld').style.display = isLegged(o) ? '' : 'none';
+    if (isLegged(o)) {
+      $('pTop').value = Math.round(+o.top > 0 ? +o.top : TOPT);
+      $('pLeg').value = Math.round(+o.leg > 0 ? +o.leg : LEGT);
+    }
     $('shelfFld').style.display = isShelf(o) ? '' : 'none';
     if (isShelf(o)) renderShelf(o);
     const canSeat = !isShelf(o) && renderSeat(o);
@@ -3691,6 +3752,7 @@ $('mGroup').onclick = () => {
     parts: list.map(o => ({
       n: o.name, w: o.w, d: o.d, h: o.h, c: o.c, rot: o.rot || 0,
       kind: o.kind, levels: o.levels ? o.levels.slice() : undefined,
+      top: o.top, leg: o.leg,
       meta: o.meta ? JSON.parse(JSON.stringify(o.meta)) : undefined,
       dx: o.x - cx, dz: o.z - cz, dy: o.y || 0,
       seat: o.parent != null ? list.findIndex(q => q.id === o.parent) : -1,
@@ -3711,7 +3773,11 @@ let ownFrom = null;
 // never end up editing one another.
 function ownEntry(n, w, d, h, c, from) {
   const e = { n, w, d, h, c };
-  if (from && from.kind) { e.kind = from.kind; e.lv = from.lv; }
+  if (from && from.kind) {
+    e.kind = from.kind; e.lv = from.lv;
+    if (from.top) e.top = from.top;
+    if (from.leg) e.leg = from.leg;
+  }
   if (from && from.meta) e.meta = copyOf(from.meta);
   return e;
 }
@@ -3726,7 +3792,8 @@ $('mFrom').onclick = () => {
     kind: o.kind,
     // a count rather than the board heights, so the boards still come out even
     // if you change the height on the way through
-    lv: (o.levels || []).length || undefined
+    lv: (o.levels || []).length || undefined,
+    top: o.top, leg: o.leg
   };
 };
 
@@ -3837,6 +3904,31 @@ $('saveAsGo').onclick = () => {
   save(true);
   toast('Saved a copy as \u201c' + n + '\u201d.');
 };
+
+// Any item can be any shape. Changing it keeps the size and the details and
+// only swaps what the thing is made of, so nothing is a one-off special case.
+$('pKind').onchange = () => {
+  const o = selOne();
+  if (!o) return;
+  const k = $('pKind').value;
+  delete o.kind; delete o.levels; delete o.top; delete o.leg;
+  if (k === 'shelf')  { o.kind = 'shelf'; o.levels = evenLevels(o.h, 4); }
+  if (k === 'legged') { o.kind = 'legged'; o.top = TOPT; o.leg = LEGT; }
+  // anything that was riding on it has to be set down: its boards are gone
+  if (k !== 'shelf') childrenOf(o.id).forEach(ch => { seat(ch, null); ch.y = restOn(ch).y; });
+  redraw(); renderUI(); commit();
+};
+
+['pTop','pLeg'].forEach(id => {
+  $(id).addEventListener('input', () => {
+    const o = selOne();
+    if (!o || !isLegged(o)) return;
+    o.top = Math.max(1, +$('pTop').value || TOPT);
+    o.leg = Math.max(1, +$('pLeg').value || LEGT);
+    redraw();
+  });
+  $(id).addEventListener('change', commit);
+});
 
 $('cornToggle').onclick = () => setCorners(!showCorners);
 
@@ -5539,6 +5631,39 @@ function selfTest() {
   ok('and boards of its own',          src.levels[0] === 30);
   ok('while still being a faithful copy',
      dup.name === src.name && dup.w === src.w && dup.levels.length === 3);
+
+  // 20e. shapes: a table is a top on legs, so things go under it
+  use(rectPoly(400, 400));
+  state.room.ceiling = { mode:'flat', axis:'z', hi:250, lo:250, profile:null };
+  state.objects = [
+    // the Argos corner set: table 109x65x75, benches 102x30x42
+    { id:801, name:'Table', kind:'legged', top:4, leg:5,
+      w:109, d:65, h:75, c:0, x:200, z:200, y:0, rot:0 },
+    { id:802, name:'Bench', kind:'legged', top:4, leg:5,
+      w:102, d:30, h:42, c:0, x:200, z:200, y:0, rot:0 }
+  ];
+  const tbl = state.objects[0], bench = state.objects[1];
+  ok('a table is a top and four legs', solids(tbl).length === 5);
+  ok('its top sits at the top', near(solids(tbl)[0].y + solids(tbl)[0].h, 75));
+  ok('a bench tucks right under the table', !clashes(bench));
+  ok('and the table does not mind either', !clashes(tbl));
+
+  bench.h = 80;                       // now taller than the table top
+  ok('a bench too tall to go under does clash', clashes(bench));
+  bench.h = 42;
+
+  // the legs are 60cm apart across the depth, so a 30cm bench on the centre
+  // line slides between them rather than into them
+  bench.x = 200 + 109/2 - 2;
+  ok('a bench between the legs is still clear', !clashes(bench));
+  bench.z = 200 - (65/2 - 5/2);       // now lined up with the front legs
+  ok('a bench pushed onto a leg clashes', clashes(bench));
+  bench.x = 200; bench.z = 200;
+
+  // and the same thing as a plain block is solid all the way down
+  tbl.kind = undefined; delete tbl.top; delete tbl.leg;
+  ok('the same thing as a solid block is one part', solids(tbl).length === 1);
+  ok('and then nothing goes under it', clashes(bench));
 
   // 20d. the corner handles button has to actually turn the handles on
   const hadCorners = showCorners;

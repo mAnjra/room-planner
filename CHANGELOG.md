@@ -3,6 +3,25 @@
 Notable changes to this project. Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and [semantic versioning](https://semver.org/) — pre-1.0, so anything may still move.
 
+## [0.1.0] — 2026-09-05
+
+### Added
+
+- **Items have a shape.** A new **Shape** row on a selected item: a solid
+  block, a table on four legs, or shelving. Any item can be changed to any of
+  them at any time, and a table's top and leg thickness are yours to set.
+
+  It is not decoration. The shape says which parts of an item are solid and
+  which are air, and that is what every check reads — so a bench slides under a
+  table, and only fouls it if it is too tall or lined up with a leg. Until now
+  everything but shelving was a solid block, so a bench under a table read as
+  being inside it, the same complaint that shelving had in 0.0.6.
+
+  Nothing here is built for one product: a table, desk, bench, stool or
+  workbench are all the same shape at different sizes. Make one with **Make your
+  own item**, or build a set — table plus benches — select the lot and save it
+  as a single entry that drops back in as a unit, shapes and all.
+
 ## [0.0.9] — 2026-09-05
 
 ### Fixed
@@ -217,6 +236,7 @@ a fallback. It planned a single rectangular room with a sloped ceiling, and
 checked that items fit under it, went through the door and left the door free to
 swing. v4 keeps that geometry and builds on it.
 
+[0.1.0]: https://github.com/mAnjra/room-planner/releases/tag/v0.1.0
 [0.0.9]: https://github.com/mAnjra/room-planner/releases/tag/v0.0.9
 [0.0.8]: https://github.com/mAnjra/room-planner/releases/tag/v0.0.8
 [0.0.7]: https://github.com/mAnjra/room-planner/releases/tag/v0.0.7
