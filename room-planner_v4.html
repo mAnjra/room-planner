@@ -435,7 +435,7 @@
 <aside id="side">
   <div class="brand">
     <h1>Baby Dragon Poo</h1>
-    <span class="ver" id="appVer">0.1.0</span>
+    <span class="ver" id="appVer">0.2.0</span>
   </div>
 
   <details class="sect" open>
@@ -724,6 +724,7 @@
           <select id="pKind">
             <option value="">Solid block</option>
             <option value="legged">Table, bench or desk</option>
+            <option value="chair">Chair, with a back</option>
             <option value="shelf">Shelving</option>
           </select></div>
 
@@ -736,6 +737,8 @@
             <div class="field"><label for="pLeg">Legs</label>
               <input type="number" id="pLeg" min="1" step="1"><span class="unit">cm</span></div>
           </div>
+          <div class="field" id="seatFldH"><label for="pSeatH">Seat</label>
+            <input type="number" id="pSeatH" min="1" step="1"><span class="unit">cm up</span></div>
         </div>
 
         <div id="shelfFld" style="display:none">
@@ -923,7 +926,7 @@ if (typeof THREE === 'undefined') {
   return;
 }
 
-const VERSION = '0.1.0';  // shown in the corner and written into saved files
+const VERSION = '0.2.0';  // shown in the corner and written into saved files
 const S = 0.01;          // centimetres to scene units
 const SNAP = 5;          // grid snap in cm
 const FIG = 175;         // reference person height
@@ -1258,10 +1261,12 @@ function throughDoor(o) {
 
 const isShelf  = o => o.kind === 'shelf';
 const isLegged = o => o.kind === 'legged';
+const isChair  = o => o.kind === 'chair';
 const BOARD = 2;                                  // board thickness in cm
 const POST  = 3;                                  // corner post, square, in cm
 const TOPT  = 4;                                  // a table top, unless you say otherwise
 const LEGT  = 5;                                  // and its legs
+const SEATH = 46;                                 // seat height off the floor
 
 function evenLevels(h, n) {
   const out = [];
@@ -1293,6 +1298,18 @@ function solids(o) {
     const out = corners4(POST, base, o.h);
     (o.levels || []).forEach(lv =>
       out.push(at(0, 0, o.w, o.d, base + Math.min(lv, o.h) - BOARD, BOARD)));
+    return out;
+  }
+
+  // a chair is a seat on legs with a back, which is why it only tucks under a
+  // table as far as its back
+  if (isChair(o)) {
+    const sh = Math.max(1, Math.min(+o.seatH > 0 ? +o.seatH : SEATH, o.h));
+    const t  = Math.max(1, Math.min(+o.top > 0 ? +o.top : TOPT, sh));
+    const g  = Math.max(1, Math.min(+o.leg > 0 ? +o.leg : LEGT, Math.min(o.w, o.d) / 2));
+    const out = [at(0, 0, o.w, o.d, base + sh - t, t)];                      // the seat
+    if (sh > t) out.push(...corners4(g, base, sh - t));                      // its legs
+    if (o.h > sh) out.push(at(0, o.d/2 - g/2, o.w, g, base + sh, o.h - sh)); // and the back
     return out;
   }
 
@@ -2599,7 +2616,7 @@ function repair(s) {
         c: colourOr(o.c)
       };
       if (!Number.isFinite(+o.c) || o.c === null) fixed++;
-      if (out.kind && out.kind !== 'shelf' && out.kind !== 'legged') {
+      if (out.kind && !['shelf','legged','chair'].includes(out.kind)) {
         delete out.kind; fixed++;
       }
       if (out.kind === 'shelf') {
@@ -2611,12 +2628,15 @@ function repair(s) {
       } else {
         delete out.levels;
       }
-      if (out.kind === 'legged') {
+      if (out.kind === 'legged' || out.kind === 'chair') {
         out.top = Math.max(1, Math.min(numOr(out.top, TOPT), h));
         out.leg = Math.max(1, Math.min(numOr(out.leg, LEGT), Math.min(w, d) / 2));
       } else {
         delete out.top; delete out.leg;
       }
+      // note: a part's `seat` says which piece it rides on, hence seatH here
+      if (out.kind === 'chair') out.seatH = Math.max(1, Math.min(numOr(out.seatH, SEATH), h));
+      else delete out.seatH;
       if (out.meta && typeof out.meta !== 'object') { delete out.meta; fixed++; }
       return out;
     });
@@ -2717,8 +2737,59 @@ function readColour(sel, fallback) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/* ================================================================== packs
+
+   Rooms full of the same sort of thing, kept apart from the kit above so a new
+   one is data and nothing else: give every entry the same `g` and it becomes
+   its own group in the Item list. A `parts` entry is a whole set, dropped in as
+   one piece with dx/dz measured from the middle of the set.
+
+   Nothing here is special-cased anywhere in the code. Every one of these is
+   something you could have built yourself with Make your own item.
+------------------------------------------------------------------------- */
+
+const CH = { kind:'chair', top:4, leg:5, seatH:46 };   // a chair, as sat on
+const TB = { kind:'legged', top:4, leg:5 };            // a top on four legs
+
+const PACKS = [
+  // ---- dining room -------------------------------------------------------
+  { g:'Dining room', n:'Dining table, 4 seat',  w:120, d:80,  h:75, c:0xA9714E, ...TB },
+  { g:'Dining room', n:'Dining table, 6 seat',  w:160, d:90,  h:75, c:0xA9714E, ...TB },
+  { g:'Dining room', n:'Dining table, corner',  w:109, d:65,  h:75, c:0xA9714E, ...TB },
+  { g:'Dining room', n:'Breakfast bar',         w:120, d:60,  h:105, c:0xA9714E, ...TB },
+  { g:'Dining room', n:'Dining chair',          w:45,  d:50,  h:92, c:0x8A7BA8, ...CH },
+  { g:'Dining room', n:'Carver chair',          w:55,  d:55,  h:95, c:0x8A7BA8, ...CH },
+  { g:'Dining room', n:'Bar stool',             w:38,  d:38,  h:75, c:0x4A5259, ...TB },
+  { g:'Dining room', n:'Dining bench',          w:110, d:35,  h:45, c:0x8A7BA8, ...TB },
+  { g:'Dining room', n:'Corner bench',          w:102, d:30,  h:42, c:0x8A7BA8, ...TB },
+  { g:'Dining room', n:'Sideboard',             w:140, d:45,  h:80, c:0x6E7F8D },
+  { g:'Dining room', n:'Display cabinet',       w:100, d:40,  h:180, c:0x6E7F8D, kind:'shelf', lv:4 },
+  { g:'Dining room', n:'Highchair',             w:50,  d:55,  h:100, c:0x6E9B7A, ...CH, seatH:52 },
+
+  // a corner set. The backs belong to the benches rather than being separate
+  // panels: a bench with a back is a chair that happens to be long, and it
+  // keeps the corner free of a phantom you could never reach behind.
+  { g:'Dining room', n:'Corner dining set', w:158, d:150, h:86, c:0xA9714E, parts: [
+      { n:'Corner bench, long',  w:158, d:30, h:86, c:0x8A7BA8, rot:180,
+        dx:  0, dz:-60, dy:0, seat:-1, ...CH, seatH:42 },
+      { n:'Corner bench, short', w:120, d:30, h:86, c:0x8A7BA8, rot:90,
+        dx:-64, dz: 15, dy:0, seat:-1, ...CH, seatH:42 },
+      { n:'Dining table',        w:109, d:65, h:75, c:0xA9714E, rot:0,
+        dx: 16, dz:  0, dy:0, seat:-1, ...TB }
+  ] },
+
+  // and the everyday one: a table with a chair on each side
+  { g:'Dining room', n:'Table and four chairs', w:120, d:160, h:92, c:0xA9714E, parts: [
+      { n:'Dining table', w:120, d:80, h:75, c:0xA9714E, rot:0,   dx:  0, dz:  0, dy:0, seat:-1, ...TB },
+      { n:'Chair, back',  w:45,  d:50, h:92, c:0x8A7BA8, rot:0,   dx:-30, dz: 55, dy:0, seat:-1, ...CH },
+      { n:'Chair, back',  w:45,  d:50, h:92, c:0x8A7BA8, rot:0,   dx: 30, dz: 55, dy:0, seat:-1, ...CH },
+      { n:'Chair, front', w:45,  d:50, h:92, c:0x8A7BA8, rot:180, dx:-30, dz:-55, dy:0, seat:-1, ...CH },
+      { n:'Chair, front', w:45,  d:50, h:92, c:0x8A7BA8, rot:180, dx: 30, dz:-55, dy:0, seat:-1, ...CH }
+  ] }
+];
+
 function allPresets() {
-  return PRESETS.concat(library.map(m => ({ ...m, g: 'Yours' })));
+  return PRESETS.concat(PACKS, library.map(m => ({ ...m, g: 'Yours' })));
 }
 
 function saveLibrary() {
@@ -2778,7 +2849,8 @@ function findSpot(o) {
   for (let z = BB.z0; z <= BB.z1; z += step)
     for (let x = BB.x0; x <= BB.x1; x += step) {
       const t = { ...o, x, z };
-      if (inRoom(t) && !blocksDoor(t) &&
+      const clear = { ...t, w: o.w + 1, d: o.d + 1 };
+      if (inRoom(clear) && !blocksDoor(t) &&
           !state.objects.some(p => p.id !== o.id && overlap(t, p))) return { x, z };
     }
   return { x: (BB.x0+BB.x1)/2, z: (BB.z0+BB.z1)/2 };
@@ -2795,6 +2867,8 @@ function addObject(p, at) {
                   x: spot.x + q.dx, z: spot.z + q.dz, y: q.dy || 0, rot: q.rot || 0 };
       if (q.kind === 'shelf') { o.kind = 'shelf'; o.levels = (q.levels || evenLevels(q.h, 4)).slice(); }
       if (q.kind === 'legged') { o.kind = 'legged'; o.top = q.top || TOPT; o.leg = q.leg || LEGT; }
+      if (q.kind === 'chair')  { o.kind = 'chair'; o.top = q.top || TOPT; o.leg = q.leg || LEGT;
+                                 o.seatH = q.seatH || SEATH; }
       if (q.meta) o.meta = JSON.parse(JSON.stringify(q.meta));
       state.objects.push(o);
       return o;
@@ -2812,6 +2886,8 @@ function addObject(p, at) {
               x: 0, y: 0, z: 0, rot: 0 };
   if (p.kind === 'shelf')  { o.kind = 'shelf'; o.levels = evenLevels(p.h, p.lv || 4); }
   if (p.kind === 'legged') { o.kind = 'legged'; o.top = p.top || TOPT; o.leg = p.leg || LEGT; }
+  if (p.kind === 'chair')  { o.kind = 'chair'; o.top = p.top || TOPT; o.leg = p.leg || LEGT;
+                             o.seatH = p.seatH || SEATH; }
   if (p.meta) o.meta = copyOf(p.meta);   // its own copy, never the library's
   const spot = at || findSpot(o);
   o.x = spot.x; o.z = spot.z; o.rot = spot.rot || 0;
@@ -3084,10 +3160,12 @@ function renderUI() {
     $('metaFld').style.display = '';
     renderMeta(o);
     $('pKind').value = o.kind || '';
-    $('leggedFld').style.display = isLegged(o) ? '' : 'none';
-    if (isLegged(o)) {
+    $('leggedFld').style.display = (isLegged(o) || isChair(o)) ? '' : 'none';
+    $('seatFldH').style.display  = isChair(o) ? '' : 'none';
+    if (isLegged(o) || isChair(o)) {
       $('pTop').value = Math.round(+o.top > 0 ? +o.top : TOPT);
       $('pLeg').value = Math.round(+o.leg > 0 ? +o.leg : LEGT);
+      if (isChair(o)) $('pSeatH').value = Math.round(+o.seatH > 0 ? +o.seatH : SEATH);
     }
     $('shelfFld').style.display = isShelf(o) ? '' : 'none';
     if (isShelf(o)) renderShelf(o);
@@ -3760,7 +3838,7 @@ $('mGroup').onclick = () => {
     parts: list.map(o => ({
       n: o.name, w: o.w, d: o.d, h: o.h, c: o.c, rot: o.rot || 0,
       kind: o.kind, levels: o.levels ? o.levels.slice() : undefined,
-      top: o.top, leg: o.leg,
+      top: o.top, leg: o.leg, seatH: o.seatH,
       meta: o.meta ? JSON.parse(JSON.stringify(o.meta)) : undefined,
       dx: o.x - cx, dz: o.z - cz, dy: o.y || 0,
       seat: o.parent != null ? list.findIndex(q => q.id === o.parent) : -1,
@@ -3785,6 +3863,7 @@ function ownEntry(n, w, d, h, c, from) {
     e.kind = from.kind; e.lv = from.lv;
     if (from.top) e.top = from.top;
     if (from.leg) e.leg = from.leg;
+    if (from.seatH) e.seatH = from.seatH;
   }
   if (from && from.meta) e.meta = copyOf(from.meta);
   return e;
@@ -3801,7 +3880,7 @@ $('mFrom').onclick = () => {
     // a count rather than the board heights, so the boards still come out even
     // if you change the height on the way through
     lv: (o.levels || []).length || undefined,
-    top: o.top, leg: o.leg
+    top: o.top, leg: o.leg, seatH: o.seatH
   };
 };
 
@@ -3919,20 +3998,22 @@ $('pKind').onchange = () => {
   const o = selOne();
   if (!o) return;
   const k = $('pKind').value;
-  delete o.kind; delete o.levels; delete o.top; delete o.leg;
+  delete o.kind; delete o.levels; delete o.top; delete o.leg; delete o.seatH;
   if (k === 'shelf')  { o.kind = 'shelf'; o.levels = evenLevels(o.h, 4); }
   if (k === 'legged') { o.kind = 'legged'; o.top = TOPT; o.leg = LEGT; }
+  if (k === 'chair')  { o.kind = 'chair'; o.top = TOPT; o.leg = LEGT; o.seatH = SEATH; }
   // anything that was riding on it has to be set down: its boards are gone
   if (k !== 'shelf') childrenOf(o.id).forEach(ch => { seat(ch, null); ch.y = restOn(ch).y; });
   redraw(); renderUI(); commit();
 };
 
-['pTop','pLeg'].forEach(id => {
+['pTop','pLeg','pSeatH'].forEach(id => {
   $(id).addEventListener('input', () => {
     const o = selOne();
-    if (!o || !isLegged(o)) return;
+    if (!o || !(isLegged(o) || isChair(o))) return;
     o.top = Math.max(1, +$('pTop').value || TOPT);
     o.leg = Math.max(1, +$('pLeg').value || LEGT);
+    if (isChair(o)) o.seatH = Math.max(1, +$('pSeatH').value || SEATH);
     redraw();
   });
   $(id).addEventListener('change', commit);
@@ -5672,6 +5753,48 @@ function selfTest() {
   tbl.kind = undefined; delete tbl.top; delete tbl.leg;
   ok('the same thing as a solid block is one part', solids(tbl).length === 1);
   ok('and then nothing goes under it', clashes(bench));
+
+  // 20f. chairs, and the packs that ship with the app
+  use(rectPoly(400, 400));
+  state.room.ceiling = { mode:'flat', axis:'z', hi:250, lo:250, profile:null };
+  state.openings = []; state.fixtures = [];
+  state.objects = [
+    { id:851, name:'Table', kind:'legged', top:4, leg:5,
+      w:120, d:80, h:75, c:0, x:200, z:200, y:0, rot:0 },
+    { id:852, name:'Chair', kind:'chair', top:4, leg:5, seatH:46,
+      w:45, d:50, h:92, c:0, x:170, z:255, y:0, rot:0 }
+  ];
+  const dtbl = state.objects[0], chair = state.objects[1];
+  ok('a chair is a seat, four legs and a back', solids(chair).length === 6);
+  ok('its back stands above the seat',
+     solids(chair).some(q => near(q.y, 46) && near(q.y + q.h, 92)));
+  ok('a chair tucks under a table as far as its back', !clashes(chair));
+
+  chair.z = 215;                      // shoved right under, back and all
+  ok('pushing it under far enough to catch the back does clash', clashes(chair));
+  chair.z = 255;
+  ok('and pulling it back out is fine again', !clashes(chair));
+  ok('the table is happy either way', !clashes(dtbl));
+
+  // every pack entry has to be something the app can actually build
+  const kinds = [undefined, 'shelf', 'legged', 'chair'];
+  ok('every packed item is a shape the app knows',
+     PACKS.every(p => kinds.includes(p.kind)));
+  ok('every packed item has a name and real measurements',
+     PACKS.every(p => p.n && p.g && p.w > 0 && p.d > 0 && p.h > 0));
+  ok('every piece of a packed set knows where it goes',
+     PACKS.filter(p => p.parts).every(p => p.parts.every(q =>
+       q.n && q.w > 0 && q.d > 0 && q.h > 0 &&
+       Number.isFinite(q.dx) && Number.isFinite(q.dz) && kinds.includes(q.kind))));
+  ok('a packed set is as big as the pieces in it',
+     PACKS.filter(p => p.parts).every(p => {
+       const ext = (a) => Math.max(...p.parts.map(q => {
+         const turned = ((q.rot || 0) / 90) % 2 !== 0;
+         const half = (a === 'x' ? (turned ? q.d : q.w) : (turned ? q.w : q.d)) / 2;
+         return Math.abs((a === 'x' ? q.dx : q.dz)) + half;
+       })) * 2;
+       return ext('x') <= p.w + 1 && ext('z') <= p.d + 1;
+     }));
 
   // 20d. the corner handles button has to actually turn the handles on
   const hadCorners = showCorners;

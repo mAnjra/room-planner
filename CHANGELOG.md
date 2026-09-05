@@ -3,6 +3,33 @@
 Notable changes to this project. Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and [semantic versioning](https://semver.org/) — pre-1.0, so anything may still move.
 
+## [0.2.0] — 2026-09-05
+
+### Added
+
+- **A Dining room pack.** The Item list gains a room's worth of furniture at
+  real sizes: tables from two to six seats, a breakfast bar, dining and carver
+  chairs, benches, a bar stool, a sideboard, a display cabinet and a highchair —
+  plus two ready-made sets, a **corner dining set** and a **table and four
+  chairs**, each dropping in as a single piece you can then pull apart.
+
+  Packs are data and nothing else. Every entry is something you could have built
+  yourself with Make your own item, and a new pack is a handful of lines sharing
+  a group name — no code anywhere special-cases any of it. They are inlined
+  rather than shipped as separate files, because separate files could not be
+  loaded from a page opened off disk, which is the whole point of the app. The
+  first pack costs 5KB of an 825KB file and no measurable time.
+
+- **A chair shape.** A seat on four legs with a back, so a chair tucks under a
+  table exactly as far as its back and no further. Choose it on the **Shape**
+  row and set the seat height.
+
+### Fixed
+
+- **A new item could be placed flush against a wall**, where a corner sits
+  exactly on the wall line and the inside-the-room test is a coin flip. Whole
+  sets landed half outside and came up red. Spots now need a little clearance.
+
 ## [0.1.0] — 2026-09-05
 
 ### Added
@@ -236,6 +263,7 @@ a fallback. It planned a single rectangular room with a sloped ceiling, and
 checked that items fit under it, went through the door and left the door free to
 swing. v4 keeps that geometry and builds on it.
 
+[0.2.0]: https://github.com/mAnjra/room-planner/releases/tag/v0.2.0
 [0.1.0]: https://github.com/mAnjra/room-planner/releases/tag/v0.1.0
 [0.0.9]: https://github.com/mAnjra/room-planner/releases/tag/v0.0.9
 [0.0.8]: https://github.com/mAnjra/room-planner/releases/tag/v0.0.8

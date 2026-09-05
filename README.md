@@ -35,6 +35,12 @@ box sits under the lowest shelf, because the app knows where the solid parts
 are and where the air is. Build a dining set out of a table and two benches,
 select the lot and save it as one entry, and it drops back in as a unit.
 
+**Furniture packs.** The Item list ships with a room's worth of things at real
+sizes — a **Dining room** pack to begin with: tables, chairs, benches, a
+sideboard, and whole sets like a corner dining set that drop in as one piece. A
+pack is only data: every entry is something you could have built yourself, and
+a new pack is a handful of lines with nothing special-cased anywhere.
+
 **Shelving with real boards.** A shelving bay is a frame with boards in it, not
 a solid block. Set how many boards and where, put boxes on a named board, and
 the contents move, turn and lift with the bay. Each board tells you how easy it
@@ -104,7 +110,7 @@ with `#selftest` on the end of the address:
 room-planner_v4.html#selftest
 ```
 
-125 assertions covering which side of a wall is "inside", point-in-polygon on
+135 assertions covering which side of a wall is "inside", point-in-polygon on
 L-shaped rooms, overlap between turned rectangles, ceiling heights, shelf
 boards and what rides on them, what a bay is solid at and where you can click
 it, labels, floor access, the space-left figures, link validation and CSV
