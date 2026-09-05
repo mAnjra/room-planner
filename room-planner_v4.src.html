@@ -394,6 +394,7 @@
   #modeSw button:first-child { border-radius: 2px 0 0 2px; margin-left: 0; }
   #modeSw button:last-child  { border-radius: 0 2px 2px 0; }
   #modeSw button.on { background: var(--tape); color: var(--ink); border-color: var(--tape); }
+  #cornToggle.on { background: var(--tape); color: var(--ink); border-color: var(--tape); }
 
   #walk input {
     width: 100%; -webkit-appearance: none; appearance: none;
@@ -434,7 +435,7 @@
 <aside id="side">
   <div class="brand">
     <h1>Baby Dragon Poo</h1>
-    <span class="ver" id="appVer">0.0.8</span>
+    <span class="ver" id="appVer">0.0.9</span>
   </div>
 
   <details class="sect" open>
@@ -474,7 +475,7 @@
       <div id="cornFld" style="display:none">
         <p class="hint">In <b>Plan</b> view, drag the yellow corner markers to reshape the room. Numbers below are centimetres from the back-left.</p>
         <div class="btnrow" style="margin-bottom:8px">
-          <button data-t="corners" id="cornToggle">Show corner handles</button>
+          <button id="cornToggle">Show corner handles</button>
         </div>
         <div id="cornRows"></div>
         <div class="btnrow"><button id="cornAdd">Add a corner</button></div>
@@ -896,7 +897,7 @@ if (typeof THREE === 'undefined') {
   return;
 }
 
-const VERSION = '0.0.8';  // shown in the corner and written into saved files
+const VERSION = '0.0.9';  // shown in the corner and written into saved files
 const S = 0.01;          // centimetres to scene units
 const SNAP = 5;          // grid snap in cm
 const FIG = 175;         // reference person height
@@ -1903,6 +1904,16 @@ function buildGrid() {
 }
 
 // draggable markers on the room's corners
+// A button, not one of the Show checkboxes: it fires click, has no .checked,
+// and was quietly doing nothing at all under the checkbox handler.
+function setCorners(on) {
+  showCorners = on;
+  const b = $('cornToggle');
+  b.classList.toggle('on', on);
+  b.textContent = (on ? 'Hide' : 'Show') + ' corner handles';
+  buildCorners();
+  draw2();
+}
 function buildCorners() {
   clear(gCorn);
   gCorn.visible = showCorners;
@@ -3827,6 +3838,8 @@ $('saveAsGo').onclick = () => {
   toast('Saved a copy as \u201c' + n + '\u201d.');
 };
 
+$('cornToggle').onclick = () => setCorners(!showCorners);
+
 document.querySelectorAll('[data-t]').forEach(b => b.onchange = () => {
   const on = b.checked;
   const t = b.dataset.t;
@@ -3837,7 +3850,6 @@ document.querySelectorAll('[data-t]').forEach(b => b.onchange = () => {
   if (t === 'dims') showDims = on;
   if (t === 'access') { showAccess = on; if (on && !access) checkAccess(); }
   if (t === 'gaps')   { showGaps = on;   if (on && !access) checkAccess(); }
-  if (t === 'corners') { showCorners = on; buildCorners(); }
   $('hkey').style.display = gZones.visible ? '' : 'none';
   draw2();
 });
@@ -5527,6 +5539,16 @@ function selfTest() {
   ok('and boards of its own',          src.levels[0] === 30);
   ok('while still being a faithful copy',
      dup.name === src.name && dup.w === src.w && dup.levels.length === 3);
+
+  // 20d. the corner handles button has to actually turn the handles on
+  const hadCorners = showCorners;
+  setCorners(false);
+  $('cornToggle').click();
+  ok('the corner handles button switches them on', showCorners === true);
+  ok('and the button says what it will do next', /hide/i.test($('cornToggle').textContent));
+  $('cornToggle').click();
+  ok('and switches them off again', showCorners === false);
+  setCorners(hadCorners);
 
   // 20c. saving one of your own things keeps what the form has no box for
   const kept = { id:5, name:'Tub', kind:'shelf', levels:[20,40],

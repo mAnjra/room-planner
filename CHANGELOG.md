@@ -3,6 +3,19 @@
 Notable changes to this project. Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and [semantic versioning](https://semver.org/) — pre-1.0, so anything may still move.
 
+## [0.0.9] — 2026-09-05
+
+### Fixed
+
+- **Show corner handles did nothing, so a hand-drawn room could not be
+  reshaped.** The handles are drawn on the plan as numbered yellow discs and
+  can be dragged, and the hint in the Room panel says so — but the button that
+  turns them on was wired into the handler for the Show menu's tick boxes,
+  which listens for `change` and reads `checked`. A button fires neither, so
+  the click went nowhere and the handles never appeared in either view. The
+  button is now wired as a button, lights up while it is on, and says whether
+  it will show or hide.
+
 ## [0.0.8] — 2026-09-04
 
 ### Fixed
@@ -204,6 +217,7 @@ a fallback. It planned a single rectangular room with a sloped ceiling, and
 checked that items fit under it, went through the door and left the door free to
 swing. v4 keeps that geometry and builds on it.
 
+[0.0.9]: https://github.com/mAnjra/room-planner/releases/tag/v0.0.9
 [0.0.8]: https://github.com/mAnjra/room-planner/releases/tag/v0.0.8
 [0.0.7]: https://github.com/mAnjra/room-planner/releases/tag/v0.0.7
 [0.0.6]: https://github.com/mAnjra/room-planner/releases/tag/v0.0.6

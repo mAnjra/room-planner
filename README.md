@@ -97,7 +97,7 @@ with `#selftest` on the end of the address:
 room-planner_v4.html#selftest
 ```
 
-113 assertions covering which side of a wall is "inside", point-in-polygon on
+116 assertions covering which side of a wall is "inside", point-in-polygon on
 L-shaped rooms, overlap between turned rectangles, ceiling heights, shelf
 boards and what rides on them, what a bay is solid at and where you can click
 it, labels, floor access, the space-left figures, link validation and CSV
