@@ -10,3 +10,6 @@ fixture-*.csv
 # Local tooling and OS clutter.
 .claude/
 .DS_Store
+
+# Project exports dropped in the folder while building packs.
+*.json
